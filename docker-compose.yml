@@ -15,5 +15,21 @@ services:
       timeout: 5s
       retries: 10
 
+  db-host:
+    image: postgis/postgis:16-3.4
+    network_mode: host
+    command: ["postgres", "-c", "port=15432"]
+    environment:
+      POSTGRES_DB: hanoi_geocode
+      POSTGRES_USER: hanoi
+      POSTGRES_PASSWORD: hanoi
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 15432 -U hanoi -d hanoi_geocode"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres_data:

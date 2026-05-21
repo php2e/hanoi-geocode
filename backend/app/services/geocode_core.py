@@ -2,7 +2,7 @@ from fastapi import HTTPException
 
 from app.db import get_conn
 from app.services.geometry import cell_center_xy, cell_indices, cell_polygon_geojson, lonlat_to_xy, xy_to_lonlat
-from app.services.normalize import normalize_code
+from app.services.normalize import code_candidates
 from app.services.word_mapping import local_to_pair, pair_to_local
 
 
@@ -51,7 +51,7 @@ def encode_point(lat: float, lon: float) -> dict:
         code = f"{admin['slug']}.{w1['slug']}.{w2['slug']}"
         return {
             "code": code,
-            "display_code": f"{admin['name']}.{w1['display']}.{w2['display']}",
+            "display_code": format_display_code(admin["name"], w1["display"], w2["display"]),
             "admin_unit": admin_out(admin),
             "clicked": {"lat": lat, "lon": lon},
             "center": {"lat": center_lat, "lon": center_lon},
@@ -62,58 +62,73 @@ def encode_point(lat: float, lon: float) -> dict:
 
 
 def decode_code(raw_code: str) -> dict:
-    normalized = normalize_code(raw_code)
-    parts = normalized.split(".")
-    if len(parts) != 3 or not all(parts):
-        raise api_error("INVALID_CODE_FORMAT", "Code must have format admin.word1.word2.")
-    admin_slug, word1_slug, word2_slug = parts
+    candidates = []
+    for candidate in code_candidates(raw_code):
+        parts = candidate.split(".")
+        if len(parts) == 3 and all(parts):
+            candidates.append(tuple(parts))
+    if not candidates:
+        raise api_error("INVALID_CODE_FORMAT", "Enter a code like ba-vi.ao-mua.cay-da.")
+
+    saw_admin = False
+    saw_words = False
     with get_conn() as conn:
-        admin = conn.execute("SELECT id, name, slug, area_km2 FROM admin_units WHERE slug = %s", (admin_slug,)).fetchone()
-        if not admin:
-            raise api_error("UNKNOWN_ADMIN_UNIT", "No admin unit matches the code prefix.", 404)
-        grid = latest_grid(conn)
-        params = code_params(conn, admin["id"], grid["id"])
-        word_rows = conn.execute(
-            "SELECT id, display, slug FROM words WHERE slug = ANY(%s) AND is_active ORDER BY id",
-            ([word1_slug, word2_slug],),
-        ).fetchall()
-        by_slug = {row["slug"]: row for row in word_rows}
-        if word1_slug not in by_slug or word2_slug not in by_slug:
-            raise api_error("UNKNOWN_WORD", "One or both words are not in the active word list.", 404)
-        local_index = pair_to_local(
-            by_slug[word1_slug]["id"],
-            by_slug[word2_slug]["id"],
-            params["word_count"],
-            params["multiplier"],
-            params["offset_value"],
-            params["pair_capacity"],
-        )
-        if local_index >= params["cell_count"]:
-            raise api_error("CODE_NOT_ASSIGNED", "The code maps outside this admin unit's assigned cell range.", 404)
-        interval = conn.execute(
-            """
-            SELECT * FROM admin_grid_intervals
-            WHERE grid_version_id = %s AND admin_unit_id = %s
-              AND cumulative_start <= %s AND cumulative_end >= %s
-            LIMIT 1
-            """,
-            (grid["id"], admin["id"], local_index, local_index),
-        ).fetchone()
-        if not interval:
-            raise api_error("CODE_NOT_ASSIGNED", "The code does not map to a built interval.", 404)
-        x_index = interval["x_start"] + (local_index - interval["cumulative_start"])
-        y_index = interval["y_index"]
-        center_x, center_y = cell_center_xy(x_index, y_index, grid["origin_x"], grid["origin_y"], grid["cell_size_m"])
-        center_lon, center_lat = xy_to_lonlat(center_x, center_y)
-        code = f"{admin['slug']}.{word1_slug}.{word2_slug}"
-        return {
-            "code": code,
-            "admin_unit": admin_out(admin),
-            "center": {"lat": center_lat, "lon": center_lon},
-            "cell_size_m": grid["cell_size_m"],
-            "grid_version": grid["version"],
-            "cell_polygon": cell_polygon_geojson(x_index, y_index, grid["origin_x"], grid["origin_y"], grid["cell_size_m"]),
-        }
+        for admin_slug, word1_slug, word2_slug in candidates:
+            admin = conn.execute("SELECT id, name, slug, area_km2 FROM admin_units WHERE slug = %s", (admin_slug,)).fetchone()
+            if not admin:
+                continue
+            saw_admin = True
+            grid = latest_grid(conn)
+            params = code_params(conn, admin["id"], grid["id"])
+            word_rows = conn.execute(
+                "SELECT id, display, slug FROM words WHERE slug = ANY(%s) AND is_active ORDER BY id",
+                ([word1_slug, word2_slug],),
+            ).fetchall()
+            by_slug = {row["slug"]: row for row in word_rows}
+            if word1_slug not in by_slug or word2_slug not in by_slug:
+                continue
+            saw_words = True
+            local_index = pair_to_local(
+                by_slug[word1_slug]["id"],
+                by_slug[word2_slug]["id"],
+                params["word_count"],
+                params["multiplier"],
+                params["offset_value"],
+                params["pair_capacity"],
+            )
+            if local_index >= params["cell_count"]:
+                continue
+            interval = conn.execute(
+                """
+                SELECT * FROM admin_grid_intervals
+                WHERE grid_version_id = %s AND admin_unit_id = %s
+                  AND cumulative_start <= %s AND cumulative_end >= %s
+                LIMIT 1
+                """,
+                (grid["id"], admin["id"], local_index, local_index),
+            ).fetchone()
+            if not interval:
+                continue
+            x_index = interval["x_start"] + (local_index - interval["cumulative_start"])
+            y_index = interval["y_index"]
+            center_x, center_y = cell_center_xy(x_index, y_index, grid["origin_x"], grid["origin_y"], grid["cell_size_m"])
+            center_lon, center_lat = xy_to_lonlat(center_x, center_y)
+            code = f"{admin['slug']}.{word1_slug}.{word2_slug}"
+            return {
+                "code": code,
+                "display_code": format_display_code(admin["name"], by_slug[word1_slug]["display"], by_slug[word2_slug]["display"]),
+                "admin_unit": admin_out(admin),
+                "center": {"lat": center_lat, "lon": center_lon},
+                "cell_size_m": grid["cell_size_m"],
+                "grid_version": grid["version"],
+                "cell_polygon": cell_polygon_geojson(x_index, y_index, grid["origin_x"], grid["origin_y"], grid["cell_size_m"]),
+            }
+
+    if not saw_admin:
+        raise api_error("UNKNOWN_ADMIN_UNIT", "No admin unit matches the code prefix.", 404)
+    if not saw_words:
+        raise api_error("UNKNOWN_WORD", "One or both words are not in the active word list.", 404)
+    raise api_error("CODE_NOT_ASSIGNED", "The code is outside the supported area for this admin unit.", 404)
 
 
 def latest_grid(conn) -> dict:
@@ -146,3 +161,7 @@ def words_by_ids(conn, word1_id: int, word2_id: int) -> tuple[dict, dict]:
 
 def admin_out(row: dict) -> dict:
     return {"id": row["id"], "name": row["name"], "slug": row["slug"], "area_km2": row.get("area_km2")}
+
+
+def format_display_code(admin_name: str, word1: str, word2: str) -> str:
+    return f"{admin_name.strip().upper()}. {word1.strip().lower()}. {word2.strip().lower()}"

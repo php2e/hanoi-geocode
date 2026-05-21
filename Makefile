@@ -1,12 +1,19 @@
 DATABASE_URL ?= postgresql://hanoi:hanoi@localhost:15432/hanoi_geocode
 
-.PHONY: db-up db-down migrate import-admin import-words build-grid backend web test validate
+.PHONY: db-up db-up-host db-down db-check migrate import-admin import-words build-grid backend web test validate
 
 db-up:
 	docker compose up -d db
 
+db-up-host:
+	docker compose up -d db-host
+
 db-down:
 	docker compose down
+
+db-check:
+	docker compose ps
+	docker compose exec db pg_isready -U hanoi -d hanoi_geocode || docker compose exec db-host pg_isready -h localhost -p 15432 -U hanoi -d hanoi_geocode
 
 migrate:
 	cd backend && DATABASE_URL=$(DATABASE_URL) python -m scripts.apply_migrations
