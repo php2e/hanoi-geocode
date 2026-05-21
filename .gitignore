@@ -1,0 +1,56 @@
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.*
+!.env.example
+!backend/.env.example
+!web/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+backend/.venv/
+backend/venv/
+.venv/
+venv/
+
+# Node/Vite
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Generated local reports and database files
+backend/word_validation_report.txt
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite3
+
+# Local geospatial build outputs
+data/generated/
+data/reports/
+
+# Docker/local volumes
+.docker/
+postgres_data/

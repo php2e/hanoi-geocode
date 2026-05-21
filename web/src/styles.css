@@ -1,0 +1,152 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #17202a;
+  background: #f7f8f4;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+#map {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+.map-fallback {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #17202a;
+  background: #f7f8f4;
+  font-size: 18px;
+  font-weight: 700;
+  z-index: 1;
+}
+
+.search {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  right: 16px;
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 10px 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(23, 32, 42, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(24, 38, 55, 0.18);
+  z-index: 2;
+}
+
+.search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  font-size: 15px;
+  background: transparent;
+}
+
+.search button {
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  background: #255f85;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.search button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.panel {
+  position: fixed;
+  right: 16px;
+  bottom: 24px;
+  width: min(380px, calc(100vw - 32px));
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(23, 32, 42, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(24, 38, 55, 0.2);
+  z-index: 2;
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+
+.result {
+  display: grid;
+  gap: 12px;
+}
+
+.result div {
+  display: grid;
+  gap: 4px;
+}
+
+label {
+  color: #687583;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+strong {
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  margin: 0;
+  color: #687583;
+}
+
+.error {
+  padding: 10px 12px;
+  border-radius: 6px;
+  color: #842315;
+  background: #ffe9df;
+}
+
+@media (max-width: 640px) {
+  .search {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+  }
+
+  .panel {
+    left: 10px;
+    right: 10px;
+    bottom: 18px;
+    width: auto;
+  }
+}
