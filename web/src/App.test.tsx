@@ -72,7 +72,9 @@ describe("SearchBox", () => {
   it("renders grouped code and place suggestions", async () => {
     render(<SearchBoxHarness onSelect={() => undefined} />);
 
-    fireEvent.change(screen.getByPlaceholderText("Search places, coordinates, codes, or 21.0285, 105.8542"), {
+    const input = screen.getByPlaceholderText("Search a place or /// code");
+    fireEvent.focus(input);
+    fireEvent.change(input, {
       target: { value: "ba-vi.ao-mua.cay-da" },
     });
     await vi.advanceTimersByTimeAsync(300);
@@ -80,7 +82,7 @@ describe("SearchBox", () => {
 
     expect(screen.getByText("Codes")).toBeInTheDocument();
     expect(screen.getByText("Places")).toBeInTheDocument();
-    expect(screen.getByText("ba-vi.ao-mua.cay-da")).toBeInTheDocument();
+    expect(screen.getByText("/// Ba Vì.áo mưa.cây đa")).toBeInTheDocument();
     expect(screen.queryByText(/Ba Vì\.áo mưa\.cây đa · Xã Ba Vì/)).not.toBeInTheDocument();
     expect(screen.getByText("Hồ Gươm")).toBeInTheDocument();
   });
@@ -89,12 +91,13 @@ describe("SearchBox", () => {
     const onSelect = vi.fn();
     render(<SearchBoxHarness onSelect={onSelect} />);
 
-    const input = screen.getByPlaceholderText("Search places, coordinates, codes, or 21.0285, 105.8542");
+    const input = screen.getByPlaceholderText("Search a place or /// code");
+    fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "ba-vi.ao-mua.cay-da" } });
     await vi.advanceTimersByTimeAsync(300);
     await Promise.resolve();
 
-    screen.getByText("ba-vi.ao-mua.cay-da");
+    screen.getByText("/// Ba Vì.áo mưa.cây đa");
     fireEvent.keyDown(input, { key: "Enter" });
     fireEvent.submit(input.closest("form")!);
 
@@ -105,7 +108,9 @@ describe("SearchBox", () => {
     const onSelect = vi.fn();
     render(<SearchBoxHarness onSelect={onSelect} />);
 
-    fireEvent.change(screen.getByPlaceholderText("Search places, coordinates, codes, or 21.0285, 105.8542"), {
+    const input = screen.getByPlaceholderText("Search a place or /// code");
+    fireEvent.focus(input);
+    fireEvent.change(input, {
       target: { value: "Hồ Gươm" },
     });
     await vi.advanceTimersByTimeAsync(300);
@@ -121,12 +126,24 @@ describe("SearchBox", () => {
     render(
       <ResultCard
         result={codeResult}
-        showNearbyCells={false}
+        showGrid={true}
+        gridNotice={null}
+        gridDebug={{
+          zoom: 18.5,
+          visible: true,
+          verticalLineCount: 40,
+          horizontalLineCount: 30,
+          lineCount: 70,
+          hiddenReason: null,
+          hiddenCode: null,
+        }}
         directionsLoading={false}
-        onShowNearbyCells={() => undefined}
+        onShowGrid={() => undefined}
         onCopyCode={() => undefined}
+        onCopyNormalizedCode={() => undefined}
         onShare={() => undefined}
         onDirections={() => undefined}
+        onSave={() => undefined}
         onOpenOpenStreetMap={() => undefined}
         onOpenGoogleMaps={() => undefined}
         onCopyCoordinates={() => undefined}
@@ -135,8 +152,9 @@ describe("SearchBox", () => {
       />,
     );
 
-    expect(screen.getByText("ba-vi.ao-mua.cay-da")).toBeInTheDocument();
+    expect(screen.getByText("Ba Vì.áo mưa.cây đa")).toBeInTheDocument();
     expect(screen.getByText("Xã Ba Vì, Hà Nội")).toBeInTheDocument();
+    expect(screen.getByText("Show grid")).toBeInTheDocument();
     expect(screen.getByText("Developer info").closest("details")).not.toHaveAttribute("open");
     expect(screen.queryByText("Grid version")).not.toBeVisible();
   });
@@ -144,7 +162,7 @@ describe("SearchBox", () => {
 
 function SearchBoxHarness({ onSelect }: { onSelect: ComponentProps<typeof SearchBox>["onSelect"] }) {
   const [query, setQuery] = useState("");
-  return <SearchBox query={query} onQueryChange={setQuery} onSelect={onSelect} busy={false} />;
+  return <SearchBox query={query} onQueryChange={setQuery} onSelect={onSelect} busy={false} dismissToken={0} />;
 }
 
 const codeResult = {

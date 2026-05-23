@@ -243,7 +243,7 @@ def code_result_to_search_result(result: dict) -> dict:
     return {
         "id": f"code:{result['code']}",
         "type": "code",
-        "title": result["code"],
+        "title": result.get("display_code") or result["code"],
         "subtitle": result["subtitle"],
         "code": result["code"],
         "display_code": result["display_code"],

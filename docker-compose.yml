@@ -31,5 +31,13 @@ services:
       timeout: 5s
       retries: 10
 
+  tileserver:
+    image: maptiler/tileserver-gl
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./tiles/generated:/data
+    restart: unless-stopped
+
 volumes:
   postgres_data:

@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import admin_units, code_suggestions, decode, encode, search, suggest
+from app.api import admin_units, code_suggestions, decode, encode, grid, search, suggest
 from app.config import get_settings
 
 app = FastAPI(title="Hanoi Location Code Demo", version="0.1.0")
@@ -22,6 +22,7 @@ app.include_router(search.router)
 app.include_router(code_suggestions.router)
 app.include_router(suggest.router)
 app.include_router(admin_units.router)
+app.include_router(grid.router)
 
 
 @app.exception_handler(HTTPException)

@@ -55,3 +55,9 @@ data/
 # Docker/local volumes
 .docker/
 postgres_data/
+
+# Local map tile data
+tiles/raw/*.osm.pbf
+tiles/generated/*.mbtiles
+tiles/generated/*.pmtiles
+tiles/tmp/

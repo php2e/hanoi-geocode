@@ -28,4 +28,8 @@ def test_code_candidates_for_space_separated_code():
 
 
 def test_display_code_is_vietnamese_readable():
-    assert format_display_code("Phường Phúc Lợi", "Tranh Hùng", "Tạ Ma") == "PHƯỜNG PHÚC LỢI. tranh hùng. tạ ma"
+    assert format_display_code("Phường Phúc Lợi", "Tranh Hùng", "Tạ Ma") == "Phúc Lợi.tranh hùng.tạ ma"
+
+
+def test_display_code_strips_xa_prefix():
+    assert format_display_code("Xã Ba Vì", "Áo mưa", "Cây đa") == "Ba Vì.áo mưa.cây đa"

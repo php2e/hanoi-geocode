@@ -1,6 +1,12 @@
-import { Clipboard, Code2, ExternalLink, Layers, Link, LocateFixed, Navigation, Search, Share2, Target } from "lucide-react";
+import { Clipboard, Code2, ExternalLink, Link, LocateFixed, Navigation, Search, Settings, Share2, Target, X } from "lucide-react";
 import maplibregl, { GeoJSONSource, Map } from "maplibre-gl";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+
+type CellPolygon =
+  | GeoJSON.Polygon
+  | GeoJSON.MultiPolygon
+  | GeoJSON.Feature
+  | GeoJSON.FeatureCollection;
 
 type CodeResult = {
   code: string;
@@ -10,11 +16,16 @@ type CodeResult = {
   center: { lat: number; lon: number };
   cell_size_m: number;
   grid_version: string;
-  cell_polygon: GeoJSON.Polygon;
+  x_index?: number;
+  y_index?: number;
+  local_index?: number;
+  word_ids?: number[];
+  cell_polygon: CellPolygon;
 };
 
 type Suggestion = {
   suggested_code: string;
+  display_code?: string;
   reason: string;
   confidence: "low" | "medium" | "high";
 };
@@ -40,19 +51,71 @@ type SearchGroup = {
   results: SearchResult[];
 };
 
+type Basemap = "osm" | "self-hosted";
+
+type ViewportGridResponse = {
+  visible: boolean;
+  reason: "zoom_too_low" | "too_many_lines" | string | null;
+  grid_version?: string;
+  cell_size_m?: number;
+  line_count?: number;
+  grid?: GeoJSON.FeatureCollection<GeoJSON.LineString> | null;
+};
+
+type GridDebug = {
+  zoom: number;
+  visible: boolean;
+  verticalLineCount: number;
+  horizontalLineCount: number;
+  lineCount: number;
+  hiddenReason: string | null;
+  hiddenCode: "zoom_too_low" | "too_many_lines" | "request_failed" | "not_ready" | null;
+};
+
+type VisualDebugInfo = {
+  selectedExists: boolean;
+  code: string | null;
+  center: { lat: number; lon: number } | null;
+  hasCellPolygon: boolean;
+  zoom: number;
+  threshold: number;
+  visualMode: "grid-cell" | "marker" | "none";
+  markerShouldShow: boolean;
+  selectedCellShouldShow: boolean;
+  selectedCellSourceExists: boolean;
+  selectedCellFillExists: boolean;
+  selectedCellOutlineExists: boolean;
+  selectedCellFeatureCount: number;
+  gridSourceExists: boolean;
+  gridLayerExists: boolean;
+  markerExists: boolean;
+  markerLngLat: { lng: number; lat: number } | null;
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+const MAP_STYLE_URL = import.meta.env.VITE_MAP_STYLE_URL?.trim() ?? "";
 const emptyCollection: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
-const HIGH_CELL_ZOOM = 18;
+const GRID_ZOOM_THRESHOLD = 18;
+const GRID_HINT = "Zoom in to see the 3m grid";
+const GRID_SOURCE_ID = "viewportGrid";
+const GRID_LAYER_ID = "viewportGridLayer";
+const SELECTED_CELL_SOURCE_ID = "selectedCell";
+const SELECTED_CELL_FILL_ID = "selectedCellFill";
+const SELECTED_CELL_OUTLINE_ID = "selectedCellOutline";
 const osmAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-const cartoAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const defaultBasemap: Basemap = MAP_STYLE_URL ? "self-hosted" : "osm";
 
 export default function App() {
   const mapRef = useRef<Map | null>(null);
-  const markerRef = useRef<maplibregl.Marker | null>(null);
   const wardsRef = useRef<GeoJSON.FeatureCollection | null>(null);
+  const boundaryRef = useRef<GeoJSON.FeatureCollection | null>(null);
+  const selectedLocationRef = useRef<CodeResult | null>(null);
+  const markerRef = useRef<maplibregl.Marker | null>(null);
+  const selectedCellFeatureCountRef = useRef(0);
+  const showGridRef = useRef(true);
   const initialCodeRef = useRef(codeFromUrl());
   const [query, setQuery] = useState("");
-  const [result, setResult] = useState<CodeResult | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<CodeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -61,179 +124,93 @@ export default function App() {
   const [mapReady, setMapReady] = useState(false);
   const [boundariesLoading, setBoundariesLoading] = useState(true);
   const [activity, setActivity] = useState<string | null>(null);
-  const [mapTheme, setMapTheme] = useState<"osm" | "light">("osm");
-  const [showNearbyCells, setShowNearbyCells] = useState(false);
+  const [basemap, setBasemap] = useState<Basemap>(defaultBasemap);
+  const [basemapNotice, setBasemapNotice] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [searchDismissToken, setSearchDismissToken] = useState(0);
+  const [showGrid, setShowGrid] = useState(true);
+  const [gridNotice, setGridNotice] = useState<string | null>(null);
+  const [visualDebug, setVisualDebug] = useState<VisualDebugInfo | null>(null);
+  const [gridDebug, setGridDebug] = useState<GridDebug>({
+    zoom: 10,
+    visible: false,
+    verticalLineCount: 0,
+    horizontalLineCount: 0,
+    lineCount: 0,
+    hiddenReason: GRID_HINT,
+    hiddenCode: "zoom_too_low",
+  });
 
   useEffect(() => {
     const map = new maplibregl.Map({
       container: "map",
       center: [105.84, 21.03],
       zoom: 10,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-            tileSize: 256,
-            maxzoom: 19,
-            attribution: osmAttribution,
-          },
-          "carto-light": {
-            type: "raster",
-            tiles: [
-              "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-              "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-              "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
-            ],
-            tileSize: 256,
-            attribution: cartoAttribution,
-          },
-        },
-        layers: [
-          { id: "basemap-osm", type: "raster", source: "osm" },
-          { id: "basemap-light", type: "raster", source: "carto-light", layout: { visibility: "none" } },
-        ],
-      },
+      minZoom: 9,
+      maxZoom: 19,
+      style: mapStyleFor(defaultBasemap),
     });
     mapRef.current = map;
+    (window as Window & { __hanoiMap?: Map }).__hanoiMap = map;
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-left");
+
+    map.on("style.load", () => {
+      addGeocodeOverlays(map);
+      ensureOverlayLayers(map);
+      syncMapData();
+      syncZoomVisualMode();
+      void updateViewportGrid();
+    });
+
+    map.on("styledata", () => {
+      ensureOverlayLayers(map);
+    });
 
     map.on("load", async () => {
       setMapReady(true);
-      map.addSource("hanoi-boundary", { type: "geojson", data: emptyCollection });
-      map.addSource("wards", { type: "geojson", data: emptyCollection });
-      map.addSource("selected-ward", { type: "geojson", data: emptyCollection });
-      map.addSource("nearby-cells", { type: "geojson", data: emptyCollection });
-      map.addSource("cell", { type: "geojson", data: emptyCollection });
-      map.addSource("cell-center", { type: "geojson", data: emptyCollection });
-      map.addSource("cell-label", { type: "geojson", data: emptyCollection });
-      map.addLayer({
-        id: "hanoi-boundary-fill",
-        type: "fill",
-        source: "hanoi-boundary",
-        paint: { "fill-color": "#5b6b75", "fill-opacity": 0.018 },
-      });
-      map.addLayer({
-        id: "wards-line",
-        type: "line",
-        source: "wards",
-        paint: {
-          "line-color": "#53616b",
-          "line-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.12, 13, 0.22, 17, 0.34],
-          "line-width": ["interpolate", ["linear"], ["zoom"], 9, 0.4, 14, 0.7, 18, 1],
-        },
-      });
-      map.addLayer({
-        id: "selected-ward-fill",
-        type: "fill",
-        source: "selected-ward",
-        paint: { "fill-color": "#007a5a", "fill-opacity": 0.08 },
-      });
-      map.addLayer({
-        id: "selected-ward-line",
-        type: "line",
-        source: "selected-ward",
-        paint: {
-          "line-color": "#006b55",
-          "line-opacity": 0.82,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.1, 14, 1.8, 18, 2.8],
-        },
-      });
-      map.addLayer({
-        id: "hanoi-boundary-line",
-        type: "line",
-        source: "hanoi-boundary",
-        paint: {
-          "line-color": "#3f4a52",
-          "line-opacity": 0.5,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.9, 14, 1.4, 18, 2],
-        },
-      });
-      map.addLayer({
-        id: "cell-fill",
-        type: "fill",
-        source: "cell",
-        paint: {
-          "fill-color": "#ff5a1f",
-          "fill-opacity": ["interpolate", ["linear"], ["zoom"], 15, 0.18, 18, 0.42, 20, 0.58],
-        },
-      });
-      map.addLayer({
-        id: "nearby-cells-fill",
-        type: "fill",
-        source: "nearby-cells",
-        minzoom: HIGH_CELL_ZOOM,
-        paint: { "fill-color": "#155e75", "fill-opacity": 0.1 },
-      });
-      map.addLayer({
-        id: "nearby-cells-line",
-        type: "line",
-        source: "nearby-cells",
-        minzoom: HIGH_CELL_ZOOM,
-        paint: { "line-color": "#155e75", "line-opacity": 0.62, "line-width": 1.1 },
-      });
-      map.addLayer({
-        id: "cell-line",
-        type: "line",
-        source: "cell",
-        paint: {
-          "line-color": "#d92d00",
-          "line-opacity": 1,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2.8, 16, 3.5, 18, 5.5, 20, 6.5],
-        },
-      });
-      map.addLayer({
-        id: "cell-center",
-        type: "circle",
-        source: "cell-center",
-        minzoom: 15,
-        paint: {
-          "circle-radius": ["interpolate", ["linear"], ["zoom"], 15, 4, 18, 6, 20, 7],
-          "circle-color": "#ffffff",
-          "circle-stroke-color": "#d92d00",
-          "circle-stroke-width": 2.2,
-          "circle-opacity": 0.98,
-        },
-      });
-      map.addLayer({
-        id: "cell-label",
-        type: "symbol",
-        source: "cell-label",
-        minzoom: 17,
-        layout: {
-          "text-field": ["get", "label"],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 17, 11, 20, 13],
-          "text-anchor": "top",
-          "text-offset": [0, 1.2],
-          "text-allow-overlap": false,
-        },
-        paint: {
-          "text-color": "#7c2108",
-          "text-halo-color": "#ffffff",
-          "text-halo-width": 1.8,
-        },
-      });
+      ensureOverlayLayers(map);
 
       try {
         const [boundary, wards] = await Promise.all([
           fetch(`${API_BASE}/v1/boundaries/hanoi`).then((res) => res.json()),
           fetch(`${API_BASE}/v1/boundaries/wards`).then((res) => res.json()),
         ]);
+        boundaryRef.current = boundary;
         wardsRef.current = wards;
-        source("hanoi-boundary")?.setData(boundary);
-        source("wards")?.setData(wards);
+        syncMapData();
+        syncZoomVisualMode();
       } finally {
         setBoundariesLoading(false);
       }
+      void updateViewportGrid();
+      map.once("idle", () => {
+        void updateViewportGrid();
+        syncZoomVisualMode();
+      });
     });
 
-    map.on("click", async (event) => {
-      await encode(event.lngLat.lat, event.lngLat.lng);
+    map.on("moveend", () => {
+      void updateViewportGrid();
+      syncZoomVisualMode();
+    });
+    map.on("zoomend", () => {
+      void updateViewportGrid();
+      syncZoomVisualMode();
     });
 
-    return () => map.remove();
+    map.on("click", handleMapClick);
+
+    return () => {
+      hideMarker();
+      delete (window as Window & { __hanoiMap?: Map }).__hanoiMap;
+      map.remove();
+    };
   }, []);
+
+  useEffect(() => {
+    selectedLocationRef.current = selectedLocation;
+    syncZoomVisualMode();
+  }, [selectedLocation]);
 
   useEffect(() => {
     if (!mapReady || !initialCodeRef.current) return;
@@ -244,19 +221,38 @@ export default function App() {
   }, [mapReady]);
 
   useEffect(() => {
-    updateNearbyCells();
-  }, [showNearbyCells, result, mapReady]);
+    showGridRef.current = showGrid;
+    void updateViewportGrid();
+  }, [showGrid, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!mapReady || !map) return;
-    map.setLayoutProperty("basemap-osm", "visibility", mapTheme === "osm" ? "visible" : "none");
-    map.setLayoutProperty("basemap-light", "visibility", mapTheme === "light" ? "visible" : "none");
-  }, [mapTheme, mapReady]);
+    if (basemap === "self-hosted" && !MAP_STYLE_URL) {
+      setBasemapNotice("Self-hosted basemap needs VITE_MAP_STYLE_URL in web/.env.local.");
+      map.setStyle(mapStyleFor("osm"));
+      return;
+    }
+    setBasemapNotice(null);
+    map.setStyle(mapStyleFor(basemap));
+    map.once("style.load", () => {
+      ensureOverlayLayers(map);
+      syncMapData();
+      syncZoomVisualMode();
+      void updateViewportGrid();
+    });
+  }, [basemap, mapReady]);
 
   const source = (id: string) => mapRef.current?.getSource(id) as GeoJSONSource | undefined;
 
-  async function encode(lat: number, lon: number) {
+  function syncMapData() {
+    const currentResult = selectedLocationRef.current;
+    source("hanoi-boundary")?.setData(boundaryRef.current ?? emptyCollection);
+    source("wards")?.setData(wardsRef.current ?? emptyCollection);
+    source("selected-ward")?.setData(currentResult ? selectedWard(currentResult.admin_unit) ?? emptyCollection : emptyCollection);
+  }
+
+  async function encode(lat: number, lon: number, fly = true) {
     setLoading(true);
     setError(null);
     setNotice(null);
@@ -264,7 +260,7 @@ export default function App() {
     setActivity("Encoding location");
     try {
       const data = await api<CodeResult>(`/v1/encode?lat=${lat}&lon=${lon}`);
-      showResult(data, false, true);
+      showResult(data, fly, true);
     } catch (err) {
       setError(messageFromError(err));
     } finally {
@@ -294,62 +290,302 @@ export default function App() {
   }
 
   function showResult(data: CodeResult, fly: boolean, updateUrl: boolean) {
-    setResult(data);
+    setSelectedLocation(data);
+    selectedLocationRef.current = data;
     setSuggestions([]);
-    setQuery(data.code);
+    setQuery(data.display_code ?? data.code);
     if (updateUrl) {
       window.history.replaceState(null, "", sharePath(data.code));
     }
-    source("cell")?.setData({
-      type: "Feature",
-      properties: {},
-      geometry: data.cell_polygon,
-    });
-    source("cell-label")?.setData({
-      type: "Feature",
-      properties: { label: data.code },
-      geometry: { type: "Point", coordinates: [data.center.lon, data.center.lat] },
-    });
-    source("cell-center")?.setData({
-      type: "Feature",
-      properties: {},
-      geometry: { type: "Point", coordinates: [data.center.lon, data.center.lat] },
-    });
-    source("selected-ward")?.setData(selectedWard(data.admin_unit) ?? emptyCollection);
-    markerRef.current?.remove();
-    markerRef.current = new maplibregl.Marker({ color: "#bd3d17" })
-      .setLngLat([data.center.lon, data.center.lat])
-      .addTo(mapRef.current!);
-    updateNearbyCells(data);
+    syncMapData();
+    syncZoomVisualMode();
+    void updateViewportGrid();
     if (fly) {
-      mapRef.current?.flyTo({ center: [data.center.lon, data.center.lat], zoom: 18, essential: true });
+      const map = mapRef.current;
+      map?.flyTo({
+        center: [data.center.lon, data.center.lat],
+        zoom: Math.max(map.getZoom(), 18.5),
+        duration: 500,
+        essential: true,
+      });
     }
   }
 
-  function updateNearbyCells(nextResult = result) {
-    source("nearby-cells")?.setData(showNearbyCells && nextResult ? nearbyCells(nextResult.cell_polygon) : emptyCollection);
+  async function updateViewportGrid() {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+
+    ensureOverlayLayers(map);
+    const gridSource = map.getSource(GRID_SOURCE_ID) as GeoJSONSource | undefined;
+    if (!gridSource) {
+      console.warn("Grid source missing");
+      return;
+    }
+
+    const zoom = map.getZoom();
+    if (!showGridRef.current || zoom < GRID_ZOOM_THRESHOLD) {
+      gridSource.setData(emptyCollection);
+      setGridNotice(showGridRef.current ? GRID_HINT : null);
+      setGridDebug({
+        zoom,
+        visible: false,
+        verticalLineCount: 0,
+        horizontalLineCount: 0,
+        lineCount: 0,
+        hiddenReason: showGridRef.current ? GRID_HINT : null,
+        hiddenCode: showGridRef.current ? "zoom_too_low" : null,
+      });
+      return;
+    }
+
+    const bounds = map.getBounds();
+    const url = `${API_BASE}/v1/grid/viewport?west=${bounds.getWest()}&south=${bounds.getSouth()}&east=${bounds.getEast()}&north=${bounds.getNorth()}&zoom=${zoom}`;
+    let response: ViewportGridResponse;
+    try {
+      response = (await fetch(url).then((res) => res.json())) as ViewportGridResponse;
+    } catch (error) {
+      console.warn("GRID DEBUG", { zoom, error });
+      gridSource.setData(emptyCollection);
+      setGridNotice(GRID_HINT);
+      setGridDebug({
+        zoom,
+        visible: false,
+        verticalLineCount: 0,
+        horizontalLineCount: 0,
+        lineCount: 0,
+        hiddenReason: GRID_HINT,
+        hiddenCode: "request_failed",
+      });
+      return;
+    }
+
+    console.log("grid", {
+      zoom,
+      visible: response.visible,
+      reason: response.reason,
+      line_count: response.line_count,
+      feature_count: response.grid?.features?.length,
+    });
+
+    if (!response.visible || !response.grid) {
+      gridSource.setData(emptyCollection);
+      setGridNotice(GRID_HINT);
+      setGridDebug({
+        zoom,
+        visible: false,
+        verticalLineCount: 0,
+        horizontalLineCount: 0,
+        lineCount: response.line_count ?? 0,
+        hiddenReason: GRID_HINT,
+        hiddenCode: response.reason === "zoom_too_low" || response.reason === "too_many_lines" ? response.reason : null,
+      });
+      return;
+    }
+
+    gridSource.setData(response.grid);
+    const features = response.grid?.features ?? [];
+    let verticalLineCount = 0;
+    let horizontalLineCount = 0;
+    for (const feature of features) {
+      const kind = feature.properties?.kind;
+      if (kind === "vertical") verticalLineCount += 1;
+      if (kind === "horizontal") horizontalLineCount += 1;
+    }
+    setGridNotice(null);
+    setGridDebug({
+      zoom,
+      visible: true,
+      verticalLineCount,
+      horizontalLineCount,
+      lineCount: response.line_count ?? features.length,
+      hiddenReason: null,
+      hiddenCode: null,
+    });
+  }
+
+  async function handleMapClick(event: maplibregl.MapMouseEvent) {
+    setSearchDismissToken((token) => token + 1);
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    setSuggestions([]);
+    setActivity("Encoding location");
+    try {
+      const response = await api<CodeResult>(`/v1/encode?lat=${event.lngLat.lat}&lon=${event.lngLat.lng}`);
+      console.log("/v1/encode response", response);
+      console.log("/v1/encode shape", {
+        centerExists: Boolean(response.center),
+        centerLat: response.center?.lat,
+        centerLon: response.center?.lon,
+        cellPolygonExists: Boolean(response.cell_polygon),
+        cellPolygonType: response.cell_polygon?.type,
+      });
+      const selected: CodeResult = {
+        code: response.code,
+        display_code: response.display_code,
+        center: response.center,
+        cell_polygon: response.cell_polygon,
+        admin_unit: response.admin_unit,
+        clicked: response.clicked,
+        cell_size_m: response.cell_size_m,
+        grid_version: response.grid_version,
+        x_index: response.x_index,
+        y_index: response.y_index,
+        local_index: response.local_index,
+        word_ids: response.word_ids,
+      };
+      selectedLocationRef.current = selected;
+      setSelectedLocation(selected);
+      setQuery(selected.display_code ?? selected.code);
+      syncMapData();
+      syncZoomVisualMode();
+      void updateViewportGrid();
+    } catch (err) {
+      setError(messageFromError(err));
+    } finally {
+      setLoading(false);
+      setActivity(null);
+    }
+  }
+
+  function showMarker(center: { lat: number; lon: number }) {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!markerRef.current) {
+      const element = document.createElement("div");
+      element.className = "selected-location-marker";
+      markerRef.current = new maplibregl.Marker({ element })
+        .setLngLat([center.lon, center.lat])
+        .addTo(map);
+      return;
+    }
+    markerRef.current.setLngLat([center.lon, center.lat]);
+  }
+
+  function hideMarker() {
+    if (markerRef.current) {
+      markerRef.current.remove();
+      markerRef.current = null;
+    }
+  }
+
+  function setSelectedCell(cellPolygon: CellPolygon) {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    ensureOverlayLayers(map);
+    const source = map.getSource(SELECTED_CELL_SOURCE_ID) as GeoJSONSource | undefined;
+    if (!source) {
+      console.error("selectedCell source missing");
+      updateVisualDebug();
+      return;
+    }
+    const collection = normalizeCellPolygon(cellPolygon);
+    source.setData(collection);
+    selectedCellFeatureCountRef.current = collection.features.length;
+    updateVisualDebug();
+  }
+
+  function clearSelectedCell() {
+    const map = mapRef.current;
+    const source = map?.getSource(SELECTED_CELL_SOURCE_ID) as GeoJSONSource | undefined;
+    if (source) {
+      source.setData(emptyCollection);
+    }
+    selectedCellFeatureCountRef.current = 0;
+    updateVisualDebug();
+  }
+
+  function syncZoomVisualMode() {
+    const map = mapRef.current;
+    if (!map) return;
+    ensureOverlayLayers(map);
+    const zoom = map.getZoom();
+    const selected = selectedLocationRef.current;
+
+    if (!selected) {
+      clearSelectedCell();
+      hideMarker();
+      updateCellLabel(null);
+      updateVisualDebug();
+      return;
+    }
+
+    if (zoom >= GRID_ZOOM_THRESHOLD) {
+      hideMarker();
+      setSelectedCell(selected.cell_polygon);
+      updateCellLabel(selected);
+    } else {
+      clearSelectedCell();
+      showMarker(selected.center);
+      updateCellLabel(null);
+    }
+    const markerLngLat = markerRef.current?.getLngLat();
+    console.log("selected visual mode", {
+      zoom,
+      hasSelectedLocation: Boolean(selected),
+      threshold: GRID_ZOOM_THRESHOLD,
+      visualMode: zoom >= GRID_ZOOM_THRESHOLD ? "grid-cell" : "marker",
+      markerShouldShow: zoom < GRID_ZOOM_THRESHOLD,
+      selectedCellShouldShow: zoom >= GRID_ZOOM_THRESHOLD,
+      markerRefExists: Boolean(markerRef.current),
+      markerLngLat: markerLngLat ? { lng: markerLngLat.lng, lat: markerLngLat.lat } : null,
+      selectedCellFeatureCount: selectedCellFeatureCountRef.current,
+    });
+    updateVisualDebug();
+  }
+
+  function updateCellLabel(selected: CodeResult | null) {
+    const map = mapRef.current;
+    const labelSource = map?.getSource("cell-label") as GeoJSONSource | undefined;
+    if (labelSource) labelSource.setData(selected ? cellLabelFeature(selected) : emptyCollection);
+  }
+
+  function updateVisualDebug() {
+    const map = mapRef.current;
+    const selected = selectedLocationRef.current;
+    const zoom = map?.getZoom() ?? 0;
+    const markerLngLat = markerRef.current?.getLngLat();
+    setVisualDebug({
+      selectedExists: Boolean(selected),
+      code: selected?.code ?? null,
+      center: selected?.center ?? null,
+      hasCellPolygon: Boolean(selected?.cell_polygon),
+      zoom,
+      threshold: GRID_ZOOM_THRESHOLD,
+      visualMode: selected ? (zoom >= GRID_ZOOM_THRESHOLD ? "grid-cell" : "marker") : "none",
+      markerShouldShow: Boolean(selected && zoom < GRID_ZOOM_THRESHOLD),
+      selectedCellShouldShow: Boolean(selected && zoom >= GRID_ZOOM_THRESHOLD),
+      selectedCellSourceExists: Boolean(map?.getSource(SELECTED_CELL_SOURCE_ID)),
+      selectedCellFillExists: Boolean(map?.getLayer(SELECTED_CELL_FILL_ID)),
+      selectedCellOutlineExists: Boolean(map?.getLayer(SELECTED_CELL_OUTLINE_ID)),
+      selectedCellFeatureCount: selectedCellFeatureCountRef.current,
+      gridSourceExists: Boolean(map?.getSource(GRID_SOURCE_ID)),
+      gridLayerExists: Boolean(map?.getLayer(GRID_LAYER_ID)),
+      markerExists: Boolean(markerRef.current),
+      markerLngLat: markerLngLat ? { lng: markerLngLat.lng, lat: markerLngLat.lat } : null,
+    });
   }
 
   async function copyCode() {
-    if (!result) return;
-    await copyText(result.code);
+    if (!selectedLocation) return;
+    await copyText(visualCode(selectedLocation));
     setNotice("Copied code");
   }
 
   async function copyLink() {
-    if (!result) return;
-    await copyText(shareUrl(result.code));
+    if (!selectedLocation) return;
+    await copyText(shareUrl(selectedLocation.code));
     setNotice("Copied link");
   }
 
   async function shareResult() {
-    if (!result) return;
-    const url = shareUrl(result.code);
+    if (!selectedLocation) return;
+    const url = shareUrl(selectedLocation.code);
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "Hanoi location code",
-          text: result.display_code ?? result.code,
+          title: "Hanoi Codes location",
+          text: visualCode(selectedLocation),
           url,
         });
         return;
@@ -361,31 +597,41 @@ export default function App() {
     setNotice("Copied link");
   }
 
+  async function copyNormalizedCode() {
+    if (!selectedLocation) return;
+    await copyText(selectedLocation.code);
+    setNotice("Copied normalized code");
+  }
+
+  function saveResult() {
+    setNotice("Saved location");
+  }
+
   function openGoogleMaps() {
-    if (!result) return;
-    openExternal(googleMapsSearchUrl(result.center));
+    if (!selectedLocation) return;
+    openExternal(googleMapsSearchUrl(selectedLocation.center));
   }
 
   function openOpenStreetMap() {
-    if (!result) return;
-    openExternal(openStreetMapUrl(result.center));
+    if (!selectedLocation) return;
+    openExternal(openStreetMapUrl(selectedLocation.center));
   }
 
   async function copyCoordinates() {
-    if (!result) return;
-    await copyText(formatCoordinates(result.center));
+    if (!selectedLocation) return;
+    await copyText(formatCoordinates(selectedLocation.center));
     setNotice("Copied coordinates");
   }
 
   function directionsFromMyLocation() {
-    if (!result || !supportsGeolocation()) return;
+    if (!selectedLocation || !supportsGeolocation()) return;
     setError(null);
     setNotice(null);
     setDirectionsLoading(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setDirectionsLoading(false);
-        openExternal(googleMapsDirectionsUrl(position.coords.latitude, position.coords.longitude, result.center));
+        openExternal(googleMapsDirectionsUrl(position.coords.latitude, position.coords.longitude, selectedLocation.center));
       },
       (geoError) => {
         setDirectionsLoading(false);
@@ -422,7 +668,7 @@ export default function App() {
   }
 
   async function chooseSearchResult(searchResult: SearchResult) {
-    setQuery(searchResult.code ?? searchResult.title);
+    setQuery(searchResult.display_code ?? searchResult.code ?? searchResult.title);
     setSuggestions([]);
     if (searchResult.type === "code" && searchResult.code) {
       await decodeCode(searchResult.code, true, true, false);
@@ -438,28 +684,86 @@ export default function App() {
     <>
       {!mapReady && <div className="map-fallback">Loading map...</div>}
       <div id="map" />
+      <button
+        type="button"
+        className="settings-button"
+        onClick={() => setIsSettingsOpen(true)}
+        aria-label="Open settings"
+        aria-expanded={isSettingsOpen}
+      >
+        <Settings size={18} />
+      </button>
+      {isSettingsOpen && (
+        <button
+          type="button"
+          className="settings-backdrop"
+          aria-label="Close settings"
+          onClick={() => setIsSettingsOpen(false)}
+        />
+      )}
+      <aside className={`settings-panel ${isSettingsOpen ? "open" : ""}`} aria-hidden={!isSettingsOpen}>
+        <div className="settings-header">
+          <div className="settings-title">
+            <Settings size={18} />
+            <span>Settings</span>
+          </div>
+          <button type="button" className="settings-close" onClick={() => setIsSettingsOpen(false)} aria-label="Close">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="settings-section">
+          <span className="settings-label">Map type</span>
+          <div className="settings-options">
+            <button
+              type="button"
+              className={`settings-option ${basemap === "osm" ? "active" : ""}`}
+              onClick={() => setBasemap("osm")}
+            >
+              OSM Standard
+            </button>
+            <button
+              type="button"
+              className={`settings-option ${basemap === "self-hosted" ? "active" : ""}`}
+              onClick={() => setBasemap("self-hosted")}
+            >
+              Self-hosted
+            </button>
+          </div>
+        </div>
+        <div className="settings-section">
+          <span className="settings-label">3 word address language</span>
+          <div className="settings-row">
+            <span>Vietnamese</span>
+            <span className="settings-note">Default</span>
+          </div>
+        </div>
+        <div className="settings-section">
+          <span className="settings-label">Search settings</span>
+          <div className="settings-row muted">Coming soon</div>
+        </div>
+      </aside>
       <div className="status-stack" aria-live="polite">
         {!mapReady && <div className="status-chip">Loading map</div>}
         {mapReady && boundariesLoading && <div className="status-chip">Loading boundaries</div>}
         {activity && <div className="status-chip">{activity}</div>}
+        {showGrid && gridNotice && <div className="status-chip">{gridNotice}</div>}
       </div>
+      {visualDebug && <VisualDebugPanel debug={visualDebug} />}
       <div className="search">
-        <SearchBox query={query} onQueryChange={setQuery} onSelect={chooseSearchResult} busy={loading} />
-        <button
-          className="theme-toggle"
-          type="button"
-          onClick={() => setMapTheme((theme) => (theme === "osm" ? "light" : "osm"))}
-          aria-label={`Switch to ${mapTheme === "osm" ? "Current Light Style" : "OSM Standard"}`}
-          title={mapTheme === "osm" ? "Current Light Style" : "OSM Standard"}
-        >
-          <Layers size={17} />
-        </button>
+        <SearchBox
+          query={query}
+          onQueryChange={setQuery}
+          onSelect={chooseSearchResult}
+          busy={loading}
+          dismissToken={searchDismissToken}
+        />
       </div>
       <aside className="panel">
         <div className="panel-title">
           <Target size={18} />
-          <span>{result ? "Shared location" : "Hanoi location code"}</span>
+          <span>{selectedLocation ? "Shared location" : "Hanoi location code"}</span>
         </div>
+        {basemapNotice && <div className="error">{basemapNotice}</div>}
         {notice && <div className="notice">{notice}</div>}
         {error && <div className="error">{error}</div>}
         {suggestions.length > 0 && (
@@ -467,22 +771,26 @@ export default function App() {
             <span>Did you mean...</span>
             {suggestions.map((suggestion) => (
               <button type="button" key={suggestion.suggested_code} onClick={() => chooseSuggestion(suggestion.suggested_code)}>
-                <strong>{suggestion.suggested_code}</strong>
+                <strong>/// {suggestion.display_code ?? suggestion.suggested_code}</strong>
                 <small>{suggestion.reason} · {suggestion.confidence} confidence</small>
               </button>
             ))}
           </div>
         )}
-        {!result && !error && <p className="muted">Click inside Hanoi or search a code.</p>}
-        {result && (
+        {!selectedLocation && !error && <p className="muted">Click inside Hanoi or search a code.</p>}
+        {selectedLocation && (
           <ResultCard
-            result={result}
-            showNearbyCells={showNearbyCells}
+            result={selectedLocation}
+            showGrid={showGrid}
+            gridNotice={gridNotice}
+            gridDebug={gridDebug}
             directionsLoading={directionsLoading}
-            onShowNearbyCells={setShowNearbyCells}
+            onShowGrid={setShowGrid}
             onCopyCode={copyCode}
+            onCopyNormalizedCode={copyNormalizedCode}
             onShare={shareResult}
             onDirections={openGoogleMaps}
+            onSave={saveResult}
             onOpenOpenStreetMap={openOpenStreetMap}
             onOpenGoogleMaps={openGoogleMaps}
             onCopyCoordinates={copyCoordinates}
@@ -495,31 +803,92 @@ export default function App() {
   );
 }
 
+function VisualDebugPanel({ debug }: { debug: VisualDebugInfo }) {
+  return (
+    <aside className="visual-debug-panel">
+      <strong>Selection debug</strong>
+      <dl>
+        <dt>selected exists</dt>
+        <dd>{String(debug.selectedExists)}</dd>
+        <dt>code</dt>
+        <dd>{debug.code ?? "none"}</dd>
+        <dt>center lat/lon</dt>
+        <dd>{debug.center ? `${debug.center.lat.toFixed(7)}, ${debug.center.lon.toFixed(7)}` : "none"}</dd>
+        <dt>has cell_polygon</dt>
+        <dd>{String(debug.hasCellPolygon)}</dd>
+        <dt>current zoom</dt>
+        <dd>{debug.zoom.toFixed(2)}</dd>
+        <dt>GRID_ZOOM_THRESHOLD</dt>
+        <dd>{debug.threshold}</dd>
+        <dt>visual mode</dt>
+        <dd>{debug.visualMode}</dd>
+        <dt>marker should show</dt>
+        <dd>{String(debug.markerShouldShow)}</dd>
+        <dt>selected cell should show</dt>
+        <dd>{String(debug.selectedCellShouldShow)}</dd>
+        <dt>selectedCell source exists</dt>
+        <dd>{String(debug.selectedCellSourceExists)}</dd>
+        <dt>selectedCellFill layer exists</dt>
+        <dd>{String(debug.selectedCellFillExists)}</dd>
+        <dt>selectedCellOutline layer exists</dt>
+        <dd>{String(debug.selectedCellOutlineExists)}</dd>
+        <dt>selectedCell features</dt>
+        <dd>{debug.selectedCellFeatureCount}</dd>
+        <dt>viewportGrid source exists</dt>
+        <dd>{String(debug.gridSourceExists)}</dd>
+        <dt>viewportGrid layer exists</dt>
+        <dd>{String(debug.gridLayerExists)}</dd>
+        <dt>marker ref exists</dt>
+        <dd>{String(debug.markerExists)}</dd>
+        <dt>marker lnglat</dt>
+        <dd>{debug.markerLngLat ? `${debug.markerLngLat.lng.toFixed(7)}, ${debug.markerLngLat.lat.toFixed(7)}` : "none"}</dd>
+      </dl>
+    </aside>
+  );
+}
+
 export function SearchBox({
   query,
   onQueryChange,
   onSelect,
   busy,
+  dismissToken,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
   onSelect: (result: SearchResult) => void;
   busy: boolean;
+  dismissToken: number;
 }) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [groups, setGroups] = useState<SearchGroup[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false);
+  const [hasFocus, setHasFocus] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const ignoreBlurRef = useRef(false);
+
+  useEffect(() => {
+    setOpen(false);
+    setHasFocus(false);
+    setSearching(false);
+    setError(null);
+  }, [dismissToken]);
 
   useEffect(() => {
     const trimmed = query.trim();
+    if (!hasFocus) {
+      setOpen(false);
+      setSearching(false);
+      return;
+    }
     if (trimmed.length < 2) {
       setResults([]);
       setGroups([]);
       setSearching(false);
       setError(null);
+      setOpen(false);
       return;
     }
 
@@ -555,12 +924,13 @@ export function SearchBox({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [query]);
+  }, [query, hasFocus]);
 
   const firstResult = results[0];
 
   function choose(result: SearchResult) {
     setOpen(false);
+    setHasFocus(false);
     onSelect(result);
   }
 
@@ -568,7 +938,10 @@ export function SearchBox({
     event.preventDefault();
     if (results[activeIndex]) choose(results[activeIndex]);
     else if (firstResult) choose(firstResult);
-    else setOpen(true);
+    else {
+      setError("No result found");
+      setOpen(true);
+    }
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -582,6 +955,7 @@ export function SearchBox({
       setActiveIndex((index) => Math.max(index - 1, 0));
     } else if (event.key === "Escape") {
       setOpen(false);
+      setHasFocus(false);
     } else if (event.key === "Enter" && open && results[activeIndex]) {
       event.preventDefault();
       choose(results[activeIndex]);
@@ -603,14 +977,35 @@ export function SearchBox({
               onQueryChange(event.target.value);
               setOpen(true);
             }}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              setHasFocus(true);
+              setOpen(true);
+            }}
+            onBlur={() => {
+              if (ignoreBlurRef.current) {
+                ignoreBlurRef.current = false;
+                return;
+              }
+              setOpen(false);
+              setHasFocus(false);
+            }}
             onKeyDown={handleKeyDown}
-            placeholder="Search places, coordinates, codes, or 21.0285, 105.8542"
+            placeholder="Search a place or /// code"
           />
         </div>
-        <div className="search-helper">Try Hồ Gươm or /// tay-ho.khao-di.cay-co</div>
-        {open && query.trim().length >= 2 && (
-          <div className="search-menu">
+        <div className="search-helper">Try Hồ Gươm or /// Thanh Xuân.vùng lành hai.trường chinh</div>
+        {open && hasFocus && query.trim().length >= 2 && (
+          <div
+            className="search-menu"
+            onMouseDown={() => {
+              ignoreBlurRef.current = true;
+            }}
+            onMouseUp={() => {
+              window.setTimeout(() => {
+                ignoreBlurRef.current = false;
+              }, 0);
+            }}
+          >
             {searching && <div className="search-state">Searching...</div>}
             {error && <div className="search-state error-text">{error}</div>}
             {!searching && !error && results.length === 0 && (
@@ -650,12 +1045,16 @@ export function SearchBox({
 
 export function ResultCard({
   result,
-  showNearbyCells,
+  showGrid,
+  gridNotice,
+  gridDebug,
   directionsLoading,
-  onShowNearbyCells,
+  onShowGrid,
   onCopyCode,
+  onCopyNormalizedCode,
   onShare,
   onDirections,
+  onSave,
   onOpenOpenStreetMap,
   onOpenGoogleMaps,
   onCopyCoordinates,
@@ -663,12 +1062,16 @@ export function ResultCard({
   onDirectionsFromMyLocation,
 }: {
   result: CodeResult;
-  showNearbyCells: boolean;
+  showGrid: boolean;
+  gridNotice: string | null;
+  gridDebug: GridDebug;
   directionsLoading: boolean;
-  onShowNearbyCells: (value: boolean) => void;
+  onShowGrid: (value: boolean) => void;
   onCopyCode: () => void;
+  onCopyNormalizedCode: () => void;
   onShare: () => void;
   onDirections: () => void;
+  onSave: () => void;
   onOpenOpenStreetMap: () => void;
   onOpenGoogleMaps: () => void;
   onCopyCoordinates: () => void;
@@ -681,25 +1084,33 @@ export function ResultCard({
         <span className="eyebrow">Shared location</span>
         <div className="code-line">
           <span aria-hidden="true">///</span>
-          <strong>{result.code}</strong>
+          <strong>{displayCode(result)}</strong>
         </div>
         <p>{resultContext(result)}</p>
       </div>
       <div className="primary-actions" aria-label="Primary location actions">
-        <button type="button" onClick={onCopyCode} className="primary-action">
-          <Clipboard size={16} />
-          Copy
-        </button>
         <button type="button" onClick={onShare} className="primary-action">
           <Share2 size={16} />
           Share
         </button>
         <button type="button" onClick={onDirections} className="primary-action accent">
           <Navigation size={16} />
-          Directions
+          Navigate
+        </button>
+        <button type="button" onClick={onSave} className="primary-action">
+          <Target size={16} />
+          Save
         </button>
       </div>
       <div className="actions" aria-label="Location code actions">
+        <button type="button" onClick={onCopyCode}>
+          <Clipboard size={16} />
+          Copy
+        </button>
+        <button type="button" onClick={onCopyLink}>
+          <Link size={16} />
+          Copy link
+        </button>
         <button type="button" onClick={onOpenOpenStreetMap}>
           <Navigation size={16} />
           OpenStreetMap
@@ -712,10 +1123,6 @@ export function ResultCard({
           <Clipboard size={16} />
           Copy coordinates
         </button>
-        <button type="button" onClick={onCopyLink}>
-          <Link size={16} />
-          Copy link
-        </button>
         {supportsGeolocation() && (
           <button type="button" onClick={onDirectionsFromMyLocation} disabled={directionsLoading}>
             <LocateFixed size={16} />
@@ -723,20 +1130,28 @@ export function ResultCard({
           </button>
         )}
       </div>
-      <label className="toggle">
-        <input
-          type="checkbox"
-          checked={showNearbyCells}
-          onChange={(event) => onShowNearbyCells(event.target.checked)}
-        />
-        <span>Show nearby cells</span>
-      </label>
+      <div className="grid-controls">
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={showGrid}
+            onChange={(event) => onShowGrid(event.target.checked)}
+          />
+          <span>Show grid</span>
+        </label>
+        <small>Each square is approximately 3m x 3m</small>
+        {showGrid && gridNotice && <small className="grid-notice">{gridNotice}</small>}
+      </div>
       <details className="developer-info">
         <summary>
           <Code2 size={15} />
           Developer info
         </summary>
         <dl>
+          <dt>Normalized code</dt>
+          <dd>
+            <button type="button" className="inline-copy" onClick={onCopyNormalizedCode}>{result.code}</button>
+          </dd>
           {result.clicked && (
             <>
               <dt>Clicked lat/lon</dt>
@@ -752,13 +1167,195 @@ export function ResultCard({
           <dt>Cell size</dt>
           <dd>{result.cell_size_m}m</dd>
           <dt>X/Y index</dt>
-          <dd>Not exposed by API</dd>
+          <dd>{result.x_index ?? "Not exposed"} / {result.y_index ?? "Not exposed"}</dd>
           <dt>Local index</dt>
-          <dd>Not exposed by API</dd>
+          <dd>{result.local_index ?? "Not exposed"}</dd>
+          <dt>Word ids</dt>
+          <dd>{result.word_ids?.join(", ") ?? "Not exposed"}</dd>
+          <dt>Grid visible</dt>
+          <dd>{String(gridDebug.visible)}</dd>
+          <dt>Grid zoom</dt>
+          <dd>{gridDebug.zoom.toFixed(2)}</dd>
+          <dt>Grid lines</dt>
+          <dd>{gridDebug.verticalLineCount} vertical / {gridDebug.horizontalLineCount} horizontal / {gridDebug.lineCount} total</dd>
+          <dt>Grid hidden reason</dt>
+          <dd>{gridDebug.hiddenCode ?? gridDebug.hiddenReason ?? "none"}</dd>
         </dl>
       </details>
     </div>
   );
+}
+
+function mapStyleFor(basemap: Basemap): maplibregl.StyleSpecification | string {
+  if (basemap === "self-hosted" && MAP_STYLE_URL) return MAP_STYLE_URL;
+  return {
+    version: 8,
+    sources: {
+      osm: {
+        type: "raster",
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: osmAttribution,
+      },
+    },
+    layers: [{ id: "basemap-osm", type: "raster", source: "osm" }],
+  };
+}
+
+function ensureOverlayLayers(map: Map) {
+  if (!map.isStyleLoaded()) return;
+
+  if (!map.getSource(GRID_SOURCE_ID)) map.addSource(GRID_SOURCE_ID, { type: "geojson", data: emptyCollection });
+  if (!map.getLayer(GRID_LAYER_ID)) {
+    map.addLayer({
+      id: GRID_LAYER_ID,
+      type: "line",
+      source: GRID_SOURCE_ID,
+      minzoom: GRID_ZOOM_THRESHOLD,
+      paint: {
+        "line-color": "#334155",
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 18, 0.12, 19, 0.16, 20, 0.2],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 18, 0.5, 19, 0.6, 20, 0.8],
+      },
+    });
+  }
+
+  if (!map.getSource(SELECTED_CELL_SOURCE_ID)) map.addSource(SELECTED_CELL_SOURCE_ID, { type: "geojson", data: emptyCollection });
+  if (!map.getLayer(SELECTED_CELL_FILL_ID)) {
+    map.addLayer({
+      id: SELECTED_CELL_FILL_ID,
+      type: "fill",
+      source: SELECTED_CELL_SOURCE_ID,
+      minzoom: GRID_ZOOM_THRESHOLD,
+      paint: { "fill-color": "#ff00ff", "fill-opacity": 0.35 },
+    });
+  }
+  if (!map.getLayer(SELECTED_CELL_OUTLINE_ID)) {
+    map.addLayer({
+      id: SELECTED_CELL_OUTLINE_ID,
+      type: "line",
+      source: SELECTED_CELL_SOURCE_ID,
+      minzoom: GRID_ZOOM_THRESHOLD,
+      paint: { "line-color": "#ff00ff", "line-opacity": 1, "line-width": 4 },
+    });
+  }
+
+  moveLayerToTop(map, GRID_LAYER_ID);
+  moveLayerToTop(map, SELECTED_CELL_FILL_ID);
+  moveLayerToTop(map, SELECTED_CELL_OUTLINE_ID);
+}
+
+function moveLayerToTop(map: Map, layerId: string) {
+  if (!map.getLayer(layerId)) return;
+  try {
+    map.moveLayer(layerId);
+  } catch (error) {
+    console.warn("Could not move layer", layerId, error);
+  }
+}
+
+function addGeocodeOverlays(map: Map) {
+  if (!map.getSource("hanoi-boundary")) map.addSource("hanoi-boundary", { type: "geojson", data: emptyCollection });
+  if (!map.getSource("wards")) map.addSource("wards", { type: "geojson", data: emptyCollection });
+  if (!map.getSource("selected-ward")) map.addSource("selected-ward", { type: "geojson", data: emptyCollection });
+  if (!map.getSource("cell-label")) map.addSource("cell-label", { type: "geojson", data: emptyCollection });
+
+  if (!map.getLayer("hanoi-boundary-fill")) {
+    map.addLayer({
+      id: "hanoi-boundary-fill",
+      type: "fill",
+      source: "hanoi-boundary",
+      paint: { "fill-color": "#5b6b75", "fill-opacity": 0.018 },
+    });
+  }
+  if (!map.getLayer("wards-line")) {
+    map.addLayer({
+      id: "wards-line",
+      type: "line",
+      source: "wards",
+      paint: {
+        "line-color": "#53616b",
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.12, 13, 0.22, 17, 0.34],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 9, 0.4, 14, 0.7, 18, 1],
+      },
+    });
+  }
+  if (!map.getLayer("selected-ward-fill")) {
+    map.addLayer({
+      id: "selected-ward-fill",
+      type: "fill",
+      source: "selected-ward",
+      paint: { "fill-color": "#007a5a", "fill-opacity": 0.08 },
+    });
+  }
+  if (!map.getLayer("selected-ward-line")) {
+    map.addLayer({
+      id: "selected-ward-line",
+      type: "line",
+      source: "selected-ward",
+      paint: {
+        "line-color": "#006b55",
+        "line-opacity": 0.82,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1.1, 14, 1.8, 18, 2.8],
+      },
+    });
+  }
+  if (!map.getLayer("hanoi-boundary-line")) {
+    map.addLayer({
+      id: "hanoi-boundary-line",
+      type: "line",
+      source: "hanoi-boundary",
+      paint: {
+        "line-color": "#3f4a52",
+        "line-opacity": 0.5,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.9, 14, 1.4, 18, 2],
+      },
+    });
+  }
+  if (!map.getLayer("cell-label")) {
+    map.addLayer({
+      id: "cell-label",
+      type: "symbol",
+      source: "cell-label",
+      minzoom: GRID_ZOOM_THRESHOLD,
+      layout: {
+        "text-field": ["get", "label"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 17, 11, 20, 13],
+        "text-anchor": "top",
+        "text-offset": [0, 1.2],
+        "text-allow-overlap": false,
+      },
+      paint: {
+        "text-color": "#7c2108",
+        "text-halo-color": "#ffffff",
+          "text-halo-width": 1.8,
+        },
+      });
+  }
+}
+
+function cellLabelFeature(result: CodeResult): GeoJSON.Feature<GeoJSON.Point> {
+  return {
+    type: "Feature",
+    properties: { label: displayCode(result) },
+    geometry: { type: "Point", coordinates: [result.center.lon, result.center.lat] },
+  };
+}
+
+function normalizeCellPolygon(cellPolygon: CellPolygon): GeoJSON.FeatureCollection {
+  if (!cellPolygon || typeof cellPolygon !== "object") return emptyCollection;
+  if (cellPolygon.type === "FeatureCollection") return cellPolygon as GeoJSON.FeatureCollection;
+  if (cellPolygon.type === "Feature") {
+    return { type: "FeatureCollection", features: [cellPolygon as GeoJSON.Feature] };
+  }
+  if (cellPolygon.type === "Polygon" || cellPolygon.type === "MultiPolygon") {
+    return {
+      type: "FeatureCollection",
+      features: [{ type: "Feature", properties: {}, geometry: cellPolygon as GeoJSON.Geometry }],
+    };
+  }
+  return emptyCollection;
 }
 
 async function api<T>(path: string): Promise<T> {
@@ -803,7 +1400,7 @@ function codeFromUrl(): string | null {
 }
 
 function sharePath(code: string): string {
-  return `/c/${encodeURIComponent(code)}`;
+  return `/?code=${encodeURIComponent(code)}`;
 }
 
 function shareUrl(code: string): string {
@@ -833,7 +1430,7 @@ function groupSearchResults(results: SearchResult[]): SearchGroup[] {
 }
 
 function searchResultTitle(result: SearchResult): string {
-  return result.type === "code" ? (result.code ?? result.title) : result.title;
+  return result.type === "code" ? `/// ${result.display_code ?? result.title ?? result.code}` : result.title;
 }
 
 function searchResultSubtitle(result: SearchResult): string {
@@ -845,7 +1442,7 @@ function searchResultSubtitle(result: SearchResult): string {
 
 function resultBadge(result: SearchResult): string {
   if (result.type === "code") {
-    return result.confidence === "high" ? "CODE" : `CODE · ${result.confidence}`;
+    return "CODE";
   }
   if (result.type === "place") return result.source === "nominatim" ? "PLACE" : result.source;
   if (result.type === "admin_unit") return "ADMIN";
@@ -865,6 +1462,14 @@ function resultContext(result: CodeResult): string {
 
 function resultContextFromAdmin(adminUnit: { name: string; slug: string } | null): string {
   return adminUnit ? `${adminUnit.name}, Hà Nội` : "Hà Nội";
+}
+
+function displayCode(result: { code: string; display_code?: string | null }): string {
+  return result.display_code || result.code;
+}
+
+function visualCode(result: { code: string; display_code?: string | null }): string {
+  return `/// ${displayCode(result)}`;
 }
 
 function googleMapsSearchUrl(point: { lat: number; lon: number }): string {
@@ -906,36 +1511,6 @@ function messageFromGeolocationError(error: GeolocationPositionError): string {
 function shortCode(code: string): string {
   const parts = code.split(".");
   return parts.length === 3 ? `${parts[1]}.${parts[2]}` : code;
-}
-
-function nearbyCells(polygon: GeoJSON.Polygon): GeoJSON.FeatureCollection<GeoJSON.Polygon> {
-  const ring = polygon.coordinates[0];
-  if (ring.length < 5) return emptyCollection as GeoJSON.FeatureCollection<GeoJSON.Polygon>;
-
-  const p0 = ring[0];
-  const p1 = ring[1];
-  const p3 = ring[3];
-  const xStep = [p1[0] - p0[0], p1[1] - p0[1]];
-  const yStep = [p3[0] - p0[0], p3[1] - p0[1]];
-  const features: GeoJSON.Feature<GeoJSON.Polygon>[] = [];
-
-  for (let y = -1; y <= 1; y += 1) {
-    for (let x = -1; x <= 1; x += 1) {
-      if (x === 0 && y === 0) continue;
-      const dx = xStep[0] * x + yStep[0] * y;
-      const dy = xStep[1] * x + yStep[1] * y;
-      features.push({
-        type: "Feature",
-        properties: {},
-        geometry: {
-          type: "Polygon",
-          coordinates: [ring.map(([lon, lat]) => [lon + dx, lat + dy])],
-        },
-      });
-    }
-  }
-
-  return { type: "FeatureCollection", features: features.slice(0, 24) };
 }
 
 function normalizeCodeInput(value: string): string {

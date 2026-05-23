@@ -57,6 +57,10 @@ def encode_point(lat: float, lon: float) -> dict:
             "center": {"lat": center_lat, "lon": center_lon},
             "cell_size_m": grid["cell_size_m"],
             "grid_version": grid["version"],
+            "x_index": x_index,
+            "y_index": y_index,
+            "local_index": local_index,
+            "word_ids": [word1_id, word2_id],
             "cell_polygon": cell_polygon_geojson(x_index, y_index, grid["origin_x"], grid["origin_y"], grid["cell_size_m"]),
         }
 
@@ -121,6 +125,10 @@ def decode_code(raw_code: str) -> dict:
                 "center": {"lat": center_lat, "lon": center_lon},
                 "cell_size_m": grid["cell_size_m"],
                 "grid_version": grid["version"],
+                "x_index": x_index,
+                "y_index": y_index,
+                "local_index": local_index,
+                "word_ids": [by_slug[word1_slug]["id"], by_slug[word2_slug]["id"]],
                 "cell_polygon": cell_polygon_geojson(x_index, y_index, grid["origin_x"], grid["origin_y"], grid["cell_size_m"]),
             }
 
@@ -136,6 +144,18 @@ def latest_grid(conn) -> dict:
     if not grid:
         raise api_error("GRID_NOT_BUILT", "No grid version exists. Run build_grid_intervals.py first.", 503)
     return grid
+
+
+def current_grid_version() -> dict:
+    with get_conn() as conn:
+        grid = latest_grid(conn)
+    return {
+        "version": grid["version"],
+        "crs": grid["crs"],
+        "cell_size_m": grid["cell_size_m"],
+        "origin_x": grid["origin_x"],
+        "origin_y": grid["origin_y"],
+    }
 
 
 def code_params(conn, admin_unit_id: int, grid_version_id: int) -> dict:
@@ -164,4 +184,12 @@ def admin_out(row: dict) -> dict:
 
 
 def format_display_code(admin_name: str, word1: str, word2: str) -> str:
-    return f"{admin_name.strip().upper()}. {word1.strip().lower()}. {word2.strip().lower()}"
+    return f"{display_admin_code_part(admin_name)}.{word1.strip().lower()}.{word2.strip().lower()}"
+
+
+def display_admin_code_part(admin_name: str) -> str:
+    value = admin_name.strip()
+    for prefix in ("Phường ", "Xã ", "Thị trấn "):
+        if value.startswith(prefix):
+            return value[len(prefix) :].strip()
+    return value

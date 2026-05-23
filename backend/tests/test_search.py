@@ -42,7 +42,7 @@ def test_search_returns_grouped_exact_code(monkeypatch):
     response = search.search("ba-vi.ao-mua.cay-da", place_provider=FakePlaceProvider())
     assert response["groups"][0]["type"] == "codes"
     assert response["groups"][0]["results"][0]["code"] == "ba-vi.ao-mua.cay-da"
-    assert response["groups"][0]["results"][0]["title"] == "ba-vi.ao-mua.cay-da"
+    assert response["groups"][0]["results"][0]["title"] == "Ba Vì.áo mưa.cây đa"
     assert response["groups"][0]["results"][0]["subtitle"] == "Xã Ba Vì, Hà Nội"
 
 

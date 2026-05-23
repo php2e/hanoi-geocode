@@ -80,6 +80,7 @@ def suggest_code(raw_code: str, limit: int = 5) -> list[dict]:
     return [
         {
             "suggested_code": result["code"],
+            "display_code": result.get("display_code"),
             "reason": result["match_reason"],
             "confidence": result["confidence"],
         }

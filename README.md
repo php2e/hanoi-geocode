@@ -13,6 +13,7 @@ The app displays Hanoi and ward/commune boundaries, lets a user click a point, a
 - `backend/`: FastAPI app, PostGIS schema, geocoding services, import/build scripts, tests.
 - `web/`: Vite React + TypeScript + MapLibre GL JS demo.
 - `data/`: canonical local inputs: `hanoi_bound_2026.geojson`, `hanoi_wards_2026.geojson`, and curated word sources such as `model_v10/top_3000_words.csv`.
+- `tiles/`: optional local basemap tile inputs and generated vector MBTiles.
 - `docs/`: architecture, geocore, data assumptions, limitations.
 
 ## Prerequisites
@@ -121,13 +122,38 @@ Offline limitations:
 
 ## Map Tiles
 
-The default basemap is OpenStreetMap Standard/Carto raster tiles:
+The default basemap is OpenStreetMap Standard raster tiles:
 
 ```text
 https://tile.openstreetmap.org/{z}/{x}/{y}.png
 ```
 
 These public tiles are fine for local demos and small testing. Keep the visible `© OpenStreetMap contributors` attribution. For production deployments, public launches, or heavier traffic, use a dedicated tile provider or self-host tiles instead of relying on the public OpenStreetMap tile service.
+
+This repo can also use a self-hosted basemap from generated vector MBTiles:
+
+```text
+tiles/generated/hanoi-osm-2026.mbtiles
+```
+
+Run TileServer GL:
+
+```bash
+make tiles-up
+```
+
+Then check `http://localhost:8080` in a browser. Logs are available with `make tiles-logs`, and the service can be stopped with `make tiles-down`.
+
+To make the web app use the self-hosted style, create `web/.env.local`:
+
+```text
+VITE_API_BASE=http://localhost:8000
+VITE_MAP_STYLE_URL=http://localhost:8080/styles/hanoi-detailed/style.json
+```
+
+When `VITE_MAP_STYLE_URL` is set, the web app starts with the self-hosted basemap and the selector can switch between `OSM Standard` and `Self-hosted`. Without that variable, `OSM Standard` remains the fallback and selecting `Self-hosted` shows a setup message.
+
+Tile data is used only for basemap rendering in MapLibre. Geocoding, code encode/decode, grid interval lookup, and search providers continue to use the backend database and APIs.
 
 If Docker fails to create a bridge network with a `veth` error, use the host-network fallback on Linux:
 

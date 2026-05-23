@@ -1,0 +1,23 @@
+{
+  "options": {
+    "paths": {
+      "root": ".",
+      "styles": "styles",
+      "fonts": "/usr/src/app/node_modules/tileserver-gl-styles/fonts",
+      "mbtiles": "."
+    }
+  },
+  "styles": {
+    "hanoi-detailed": {
+      "style": "hanoi-detailed/style.json",
+      "tilejson": {
+        "bounds": [105.28, 20.53, 106.05, 21.39]
+      }
+    }
+  },
+  "data": {
+    "v3": {
+      "mbtiles": "hanoi-osm-2026.mbtiles"
+    }
+  }
+}

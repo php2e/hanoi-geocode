@@ -5,7 +5,7 @@ WORDS_LIMIT ?= 3071
 WORDS_DUPLICATE_POLICY ?= keep-first
 WORDS_MIN_COUNT ?= 2988
 
-.PHONY: db-up db-up-host db-down db-check migrate import-admin import-words build-grid backend web test validate
+.PHONY: db-up db-up-host db-down db-check tiles-up tiles-down tiles-logs migrate import-admin import-words build-grid backend web test validate
 
 db-up:
 	docker compose up -d db
@@ -19,6 +19,15 @@ db-down:
 db-check:
 	docker compose ps
 	docker compose exec db pg_isready -U hanoi -d hanoi_geocode || docker compose exec db-host pg_isready -h localhost -p 15432 -U hanoi -d hanoi_geocode
+
+tiles-up:
+	docker compose up -d tileserver
+
+tiles-down:
+	docker compose stop tileserver
+
+tiles-logs:
+	docker compose logs -f tileserver
 
 migrate:
 	cd backend && DATABASE_URL=$(DATABASE_URL) python -m scripts.apply_migrations
@@ -43,3 +52,4 @@ test:
 
 validate:
 	cd backend && DATABASE_URL=$(DATABASE_URL) python -m scripts.validate_dataset
+

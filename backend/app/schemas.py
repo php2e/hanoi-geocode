@@ -23,6 +23,10 @@ class CodeResponse(BaseModel):
     center: PointOut
     cell_size_m: float
     grid_version: str
+    x_index: int | None = None
+    y_index: int | None = None
+    local_index: int | None = None
+    word_ids: list[int] | None = None
     cell_polygon: dict[str, Any]
 
 
