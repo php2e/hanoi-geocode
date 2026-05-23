@@ -126,8 +126,6 @@ describe("SearchBox", () => {
     render(
       <ResultCard
         result={codeResult}
-        showGrid={true}
-        gridNotice={null}
         gridDebug={{
           zoom: 18.5,
           visible: true,
@@ -137,8 +135,7 @@ describe("SearchBox", () => {
           hiddenReason: null,
           hiddenCode: null,
         }}
-        directionsLoading={false}
-        onShowGrid={() => undefined}
+        saved={false}
         onCopyCode={() => undefined}
         onCopyNormalizedCode={() => undefined}
         onShare={() => undefined}
@@ -148,21 +145,34 @@ describe("SearchBox", () => {
         onOpenGoogleMaps={() => undefined}
         onCopyCoordinates={() => undefined}
         onCopyLink={() => undefined}
-        onDirectionsFromMyLocation={() => undefined}
+        showDebug={false}
       />,
     );
 
     expect(screen.getByText("Ba Vì.áo mưa.cây đa")).toBeInTheDocument();
     expect(screen.getByText("Xã Ba Vì, Hà Nội")).toBeInTheDocument();
-    expect(screen.getByText("Show grid")).toBeInTheDocument();
-    expect(screen.getByText("Developer info").closest("details")).not.toHaveAttribute("open");
-    expect(screen.queryByText("Grid version")).not.toBeVisible();
+    expect(screen.getByRole("button", { name: /Share/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Navigate/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save/ })).toBeInTheDocument();
+    expect(screen.getByText("More options").closest("details")).not.toHaveAttribute("open");
+    expect(screen.queryByText("Developer info")).not.toBeInTheDocument();
+    expect(screen.queryByText("Grid version")).not.toBeInTheDocument();
   });
 });
 
 function SearchBoxHarness({ onSelect }: { onSelect: ComponentProps<typeof SearchBox>["onSelect"] }) {
   const [query, setQuery] = useState("");
-  return <SearchBox query={query} onQueryChange={setQuery} onSelect={onSelect} busy={false} dismissToken={0} />;
+  return (
+    <SearchBox
+      query={query}
+      onQueryChange={setQuery}
+      onSelect={onSelect}
+      onLocate={() => undefined}
+      busy={false}
+      locating={false}
+      dismissToken={0}
+    />
+  );
 }
 
 const codeResult = {

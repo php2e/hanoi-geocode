@@ -1,4 +1,4 @@
-import { Clipboard, Code2, ExternalLink, Link, LocateFixed, Navigation, Search, Settings, Share2, Target, X } from "lucide-react";
+import { Bookmark, Clipboard, Code2, ExternalLink, Link, Navigation, Search, Settings, Share2, Target, X } from "lucide-react";
 import maplibregl, { GeoJSONSource, Map } from "maplibre-gl";
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 
@@ -72,26 +72,6 @@ type GridDebug = {
   hiddenCode: "zoom_too_low" | "too_many_lines" | "request_failed" | "not_ready" | null;
 };
 
-type VisualDebugInfo = {
-  selectedExists: boolean;
-  code: string | null;
-  center: { lat: number; lon: number } | null;
-  hasCellPolygon: boolean;
-  zoom: number;
-  threshold: number;
-  visualMode: "grid-cell" | "marker" | "none";
-  markerShouldShow: boolean;
-  selectedCellShouldShow: boolean;
-  selectedCellSourceExists: boolean;
-  selectedCellFillExists: boolean;
-  selectedCellOutlineExists: boolean;
-  selectedCellFeatureCount: number;
-  gridSourceExists: boolean;
-  gridLayerExists: boolean;
-  markerExists: boolean;
-  markerLngLat: { lng: number; lat: number } | null;
-};
-
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 const MAP_STYLE_URL = import.meta.env.VITE_MAP_STYLE_URL?.trim() ?? "";
 const emptyCollection: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -104,6 +84,8 @@ const SELECTED_CELL_FILL_ID = "selectedCellFill";
 const SELECTED_CELL_OUTLINE_ID = "selectedCellOutline";
 const osmAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const defaultBasemap: Basemap = MAP_STYLE_URL ? "self-hosted" : "osm";
+const SAVED_CODES_KEY = "hanoi-geocode.saved-codes";
+const DEBUG_UI = import.meta.env.VITE_DEBUG_UI === "true";
 
 export default function App() {
   const mapRef = useRef<Map | null>(null);
@@ -111,7 +93,6 @@ export default function App() {
   const boundaryRef = useRef<GeoJSON.FeatureCollection | null>(null);
   const selectedLocationRef = useRef<CodeResult | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
-  const selectedCellFeatureCountRef = useRef(0);
   const showGridRef = useRef(true);
   const initialCodeRef = useRef(codeFromUrl());
   const [query, setQuery] = useState("");
@@ -120,7 +101,6 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
-  const [directionsLoading, setDirectionsLoading] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [boundariesLoading, setBoundariesLoading] = useState(true);
   const [activity, setActivity] = useState<string | null>(null);
@@ -129,8 +109,9 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [searchDismissToken, setSearchDismissToken] = useState(0);
   const [showGrid, setShowGrid] = useState(true);
+  const [savedCodes, setSavedCodes] = useState<string[]>(() => readSavedCodes());
   const [gridNotice, setGridNotice] = useState<string | null>(null);
-  const [visualDebug, setVisualDebug] = useState<VisualDebugInfo | null>(null);
+  const [locating, setLocating] = useState(false);
   const [gridDebug, setGridDebug] = useState<GridDebug>({
     zoom: 10,
     visible: false,
@@ -263,6 +244,27 @@ export default function App() {
       showResult(data, fly, true);
     } catch (err) {
       setError(messageFromError(err));
+    } finally {
+      setLoading(false);
+      setActivity(null);
+    }
+  }
+
+  async function encodeFromCurrentLocation(lat: number, lon: number) {
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    setSuggestions([]);
+    setActivity("Encoding location");
+    try {
+      const data = await api<CodeResult>(`/v1/encode?lat=${lat}&lon=${lon}`);
+      showResult(data, true, true);
+    } catch (err) {
+      if (isOutsideSupportedArea(err)) {
+        setError("Vị trí hiện tại nằm ngoài khu vực hỗ trợ");
+      } else {
+        setError(messageFromError(err));
+      }
     } finally {
       setLoading(false);
       setActivity(null);
@@ -412,14 +414,6 @@ export default function App() {
     setActivity("Encoding location");
     try {
       const response = await api<CodeResult>(`/v1/encode?lat=${event.lngLat.lat}&lon=${event.lngLat.lng}`);
-      console.log("/v1/encode response", response);
-      console.log("/v1/encode shape", {
-        centerExists: Boolean(response.center),
-        centerLat: response.center?.lat,
-        centerLon: response.center?.lon,
-        cellPolygonExists: Boolean(response.cell_polygon),
-        cellPolygonType: response.cell_polygon?.type,
-      });
       const selected: CodeResult = {
         code: response.code,
         display_code: response.display_code,
@@ -476,13 +470,10 @@ export default function App() {
     const source = map.getSource(SELECTED_CELL_SOURCE_ID) as GeoJSONSource | undefined;
     if (!source) {
       console.error("selectedCell source missing");
-      updateVisualDebug();
       return;
     }
     const collection = normalizeCellPolygon(cellPolygon);
     source.setData(collection);
-    selectedCellFeatureCountRef.current = collection.features.length;
-    updateVisualDebug();
   }
 
   function clearSelectedCell() {
@@ -491,8 +482,6 @@ export default function App() {
     if (source) {
       source.setData(emptyCollection);
     }
-    selectedCellFeatureCountRef.current = 0;
-    updateVisualDebug();
   }
 
   function syncZoomVisualMode() {
@@ -506,7 +495,6 @@ export default function App() {
       clearSelectedCell();
       hideMarker();
       updateCellLabel(null);
-      updateVisualDebug();
       return;
     }
 
@@ -519,51 +507,12 @@ export default function App() {
       showMarker(selected.center);
       updateCellLabel(null);
     }
-    const markerLngLat = markerRef.current?.getLngLat();
-    console.log("selected visual mode", {
-      zoom,
-      hasSelectedLocation: Boolean(selected),
-      threshold: GRID_ZOOM_THRESHOLD,
-      visualMode: zoom >= GRID_ZOOM_THRESHOLD ? "grid-cell" : "marker",
-      markerShouldShow: zoom < GRID_ZOOM_THRESHOLD,
-      selectedCellShouldShow: zoom >= GRID_ZOOM_THRESHOLD,
-      markerRefExists: Boolean(markerRef.current),
-      markerLngLat: markerLngLat ? { lng: markerLngLat.lng, lat: markerLngLat.lat } : null,
-      selectedCellFeatureCount: selectedCellFeatureCountRef.current,
-    });
-    updateVisualDebug();
   }
 
   function updateCellLabel(selected: CodeResult | null) {
     const map = mapRef.current;
     const labelSource = map?.getSource("cell-label") as GeoJSONSource | undefined;
     if (labelSource) labelSource.setData(selected ? cellLabelFeature(selected) : emptyCollection);
-  }
-
-  function updateVisualDebug() {
-    const map = mapRef.current;
-    const selected = selectedLocationRef.current;
-    const zoom = map?.getZoom() ?? 0;
-    const markerLngLat = markerRef.current?.getLngLat();
-    setVisualDebug({
-      selectedExists: Boolean(selected),
-      code: selected?.code ?? null,
-      center: selected?.center ?? null,
-      hasCellPolygon: Boolean(selected?.cell_polygon),
-      zoom,
-      threshold: GRID_ZOOM_THRESHOLD,
-      visualMode: selected ? (zoom >= GRID_ZOOM_THRESHOLD ? "grid-cell" : "marker") : "none",
-      markerShouldShow: Boolean(selected && zoom < GRID_ZOOM_THRESHOLD),
-      selectedCellShouldShow: Boolean(selected && zoom >= GRID_ZOOM_THRESHOLD),
-      selectedCellSourceExists: Boolean(map?.getSource(SELECTED_CELL_SOURCE_ID)),
-      selectedCellFillExists: Boolean(map?.getLayer(SELECTED_CELL_FILL_ID)),
-      selectedCellOutlineExists: Boolean(map?.getLayer(SELECTED_CELL_OUTLINE_ID)),
-      selectedCellFeatureCount: selectedCellFeatureCountRef.current,
-      gridSourceExists: Boolean(map?.getSource(GRID_SOURCE_ID)),
-      gridLayerExists: Boolean(map?.getLayer(GRID_LAYER_ID)),
-      markerExists: Boolean(markerRef.current),
-      markerLngLat: markerLngLat ? { lng: markerLngLat.lng, lat: markerLngLat.lat } : null,
-    });
   }
 
   async function copyCode() {
@@ -604,7 +553,13 @@ export default function App() {
   }
 
   function saveResult() {
-    setNotice("Saved location");
+    if (!selectedLocation) return;
+    const next = savedCodes.includes(selectedLocation.code)
+      ? savedCodes.filter((code) => code !== selectedLocation.code)
+      : [selectedLocation.code, ...savedCodes.filter((code) => code !== selectedLocation.code)].slice(0, 20);
+    setSavedCodes(next);
+    writeSavedCodes(next);
+    setNotice(next.includes(selectedLocation.code) ? "Saved location" : "Removed saved location");
   }
 
   function openGoogleMaps() {
@@ -621,24 +576,6 @@ export default function App() {
     if (!selectedLocation) return;
     await copyText(formatCoordinates(selectedLocation.center));
     setNotice("Copied coordinates");
-  }
-
-  function directionsFromMyLocation() {
-    if (!selectedLocation || !supportsGeolocation()) return;
-    setError(null);
-    setNotice(null);
-    setDirectionsLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setDirectionsLoading(false);
-        openExternal(googleMapsDirectionsUrl(position.coords.latitude, position.coords.longitude, selectedLocation.center));
-      },
-      (geoError) => {
-        setDirectionsLoading(false);
-        setError(messageFromGeolocationError(geoError));
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
-    );
   }
 
   function selectedWard(adminUnit: CodeResult["admin_unit"]): GeoJSON.FeatureCollection | null {
@@ -680,19 +617,60 @@ export default function App() {
     }
   }
 
+  async function handleUseCurrentLocation() {
+    if (!supportsGeolocation()) {
+      setError("Trình duyệt không hỗ trợ lấy vị trí hiện tại");
+      return;
+    }
+
+    setLocating(true);
+    setError(null);
+    setNotice(null);
+    setSuggestions([]);
+    setActivity("Đang lấy vị trí");
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 30000,
+        });
+      });
+      setActivity(null);
+      await encodeFromCurrentLocation(position.coords.latitude, position.coords.longitude);
+    } catch (err) {
+      setActivity(null);
+      if (isGeolocationError(err)) {
+        setError(messageFromGeolocationError(err));
+      } else {
+        setError("Không thể lấy vị trí hiện tại");
+      }
+    } finally {
+      setLocating(false);
+    }
+  }
+
   return (
     <>
       {!mapReady && <div className="map-fallback">Loading map...</div>}
       <div id="map" />
-      <button
-        type="button"
-        className="settings-button"
-        onClick={() => setIsSettingsOpen(true)}
-        aria-label="Open settings"
-        aria-expanded={isSettingsOpen}
-      >
-        <Settings size={18} />
-      </button>
+      <header className="app-topbar">
+        <div className="brand">
+          <Target size={18} />
+          <span>Hanoi Codes</span>
+        </div>
+        <div className="topbar-actions">
+          <button
+            type="button"
+            className="settings-button"
+            onClick={() => setIsSettingsOpen(true)}
+            aria-label="Open settings"
+            aria-expanded={isSettingsOpen}
+          >
+            <Settings size={18} />
+          </button>
+        </div>
+      </header>
       {isSettingsOpen && (
         <button
           type="button"
@@ -737,10 +715,24 @@ export default function App() {
             <span className="settings-note">Default</span>
           </div>
         </div>
-        <div className="settings-section">
-          <span className="settings-label">Search settings</span>
-          <div className="settings-row muted">Coming soon</div>
-        </div>
+      <div className="settings-section">
+        <span className="settings-label">Search settings</span>
+        <div className="settings-row muted">Coming soon</div>
+      </div>
+      <div className="settings-section">
+        <span className="settings-label">Saved locations</span>
+        {savedCodes.length === 0 ? (
+          <div className="settings-row muted">No saved locations</div>
+        ) : (
+          <div className="saved-list">
+            {savedCodes.slice(0, 6).map((code) => (
+              <button type="button" key={code} onClick={() => decodeCode(code, true, true, false)}>
+                /// {code}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       </aside>
       <div className="status-stack" aria-live="polite">
         {!mapReady && <div className="status-chip">Loading map</div>}
@@ -748,102 +740,58 @@ export default function App() {
         {activity && <div className="status-chip">{activity}</div>}
         {showGrid && gridNotice && <div className="status-chip">{gridNotice}</div>}
       </div>
-      {visualDebug && <VisualDebugPanel debug={visualDebug} />}
-      <div className="search">
-        <SearchBox
-          query={query}
-          onQueryChange={setQuery}
-          onSelect={chooseSearchResult}
-          busy={loading}
-          dismissToken={searchDismissToken}
-        />
-      </div>
-      <aside className="panel">
-        <div className="panel-title">
-          <Target size={18} />
-          <span>{selectedLocation ? "Shared location" : "Hanoi location code"}</span>
-        </div>
-        {basemapNotice && <div className="error">{basemapNotice}</div>}
-        {notice && <div className="notice">{notice}</div>}
-        {error && <div className="error">{error}</div>}
-        {suggestions.length > 0 && (
-          <div className="suggestions">
-            <span>Did you mean...</span>
-            {suggestions.map((suggestion) => (
-              <button type="button" key={suggestion.suggested_code} onClick={() => chooseSuggestion(suggestion.suggested_code)}>
-                <strong>/// {suggestion.display_code ?? suggestion.suggested_code}</strong>
-                <small>{suggestion.reason} · {suggestion.confidence} confidence</small>
-              </button>
-            ))}
-          </div>
-        )}
-        {!selectedLocation && !error && <p className="muted">Click inside Hanoi or search a code.</p>}
-        {selectedLocation && (
-          <ResultCard
-            result={selectedLocation}
-            showGrid={showGrid}
-            gridNotice={gridNotice}
-            gridDebug={gridDebug}
-            directionsLoading={directionsLoading}
-            onShowGrid={setShowGrid}
-            onCopyCode={copyCode}
-            onCopyNormalizedCode={copyNormalizedCode}
-            onShare={shareResult}
-            onDirections={openGoogleMaps}
-            onSave={saveResult}
-            onOpenOpenStreetMap={openOpenStreetMap}
-            onOpenGoogleMaps={openGoogleMaps}
-            onCopyCoordinates={copyCoordinates}
-            onCopyLink={copyLink}
-            onDirectionsFromMyLocation={directionsFromMyLocation}
+      <div className="left-panel">
+        <div className="search">
+          <SearchBox
+            query={query}
+            onQueryChange={setQuery}
+            onSelect={chooseSearchResult}
+            onLocate={handleUseCurrentLocation}
+            busy={loading}
+            locating={locating}
+            dismissToken={searchDismissToken}
           />
-        )}
-      </aside>
+        </div>
+        <aside className="panel">
+          <div className="panel-title">
+            <Target size={18} />
+            <span>{selectedLocation ? "Shared location" : "Hanoi location code"}</span>
+          </div>
+          {basemapNotice && <div className="error">{basemapNotice}</div>}
+          {notice && <div className="notice">{notice}</div>}
+          {error && <div className="error">{error}</div>}
+          {suggestions.length > 0 && (
+            <div className="suggestions">
+              <span>Did you mean...</span>
+              {suggestions.map((suggestion) => (
+                <button type="button" key={suggestion.suggested_code} onClick={() => chooseSuggestion(suggestion.suggested_code)}>
+                  <strong>/// {suggestion.display_code ?? suggestion.suggested_code}</strong>
+                  <small>{suggestion.reason} · {suggestion.confidence} confidence</small>
+                </button>
+              ))}
+            </div>
+          )}
+          {!selectedLocation && !error && <p className="muted">Click inside Hanoi or search a code.</p>}
+          {selectedLocation && (
+            <ResultCard
+              result={selectedLocation}
+              gridDebug={gridDebug}
+              saved={savedCodes.includes(selectedLocation.code)}
+              onCopyCode={copyCode}
+              onCopyNormalizedCode={copyNormalizedCode}
+              onShare={shareResult}
+              onDirections={openGoogleMaps}
+              onSave={saveResult}
+              onOpenOpenStreetMap={openOpenStreetMap}
+              onOpenGoogleMaps={openGoogleMaps}
+              onCopyCoordinates={copyCoordinates}
+              onCopyLink={copyLink}
+              showDebug={DEBUG_UI}
+            />
+          )}
+        </aside>
+      </div>
     </>
-  );
-}
-
-function VisualDebugPanel({ debug }: { debug: VisualDebugInfo }) {
-  return (
-    <aside className="visual-debug-panel">
-      <strong>Selection debug</strong>
-      <dl>
-        <dt>selected exists</dt>
-        <dd>{String(debug.selectedExists)}</dd>
-        <dt>code</dt>
-        <dd>{debug.code ?? "none"}</dd>
-        <dt>center lat/lon</dt>
-        <dd>{debug.center ? `${debug.center.lat.toFixed(7)}, ${debug.center.lon.toFixed(7)}` : "none"}</dd>
-        <dt>has cell_polygon</dt>
-        <dd>{String(debug.hasCellPolygon)}</dd>
-        <dt>current zoom</dt>
-        <dd>{debug.zoom.toFixed(2)}</dd>
-        <dt>GRID_ZOOM_THRESHOLD</dt>
-        <dd>{debug.threshold}</dd>
-        <dt>visual mode</dt>
-        <dd>{debug.visualMode}</dd>
-        <dt>marker should show</dt>
-        <dd>{String(debug.markerShouldShow)}</dd>
-        <dt>selected cell should show</dt>
-        <dd>{String(debug.selectedCellShouldShow)}</dd>
-        <dt>selectedCell source exists</dt>
-        <dd>{String(debug.selectedCellSourceExists)}</dd>
-        <dt>selectedCellFill layer exists</dt>
-        <dd>{String(debug.selectedCellFillExists)}</dd>
-        <dt>selectedCellOutline layer exists</dt>
-        <dd>{String(debug.selectedCellOutlineExists)}</dd>
-        <dt>selectedCell features</dt>
-        <dd>{debug.selectedCellFeatureCount}</dd>
-        <dt>viewportGrid source exists</dt>
-        <dd>{String(debug.gridSourceExists)}</dd>
-        <dt>viewportGrid layer exists</dt>
-        <dd>{String(debug.gridLayerExists)}</dd>
-        <dt>marker ref exists</dt>
-        <dd>{String(debug.markerExists)}</dd>
-        <dt>marker lnglat</dt>
-        <dd>{debug.markerLngLat ? `${debug.markerLngLat.lng.toFixed(7)}, ${debug.markerLngLat.lat.toFixed(7)}` : "none"}</dd>
-      </dl>
-    </aside>
   );
 }
 
@@ -851,13 +799,17 @@ export function SearchBox({
   query,
   onQueryChange,
   onSelect,
+  onLocate,
   busy,
+  locating,
   dismissToken,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
   onSelect: (result: SearchResult) => void;
+  onLocate: () => void;
   busy: boolean;
+  locating: boolean;
   dismissToken: number;
 }) {
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -964,10 +916,6 @@ export function SearchBox({
 
   return (
     <form className="search-box" onSubmit={handleSubmit}>
-      <div className="brand">
-        <Target size={18} />
-        <span>Hanoi Codes</span>
-      </div>
       <div className="search-input-wrap">
         <div className="search-field">
           <Search size={18} />
@@ -1038,18 +986,28 @@ export function SearchBox({
           </div>
         )}
       </div>
-      <button type="submit" disabled={busy || searching}>{searching ? "Searching..." : "Search"}</button>
+      <div className="search-actions">
+        <button type="submit" className="search-button" disabled={busy || searching}>
+          {searching ? "Searching..." : "Search"}
+        </button>
+        <button
+          type="button"
+          className={`locate-button ${locating ? "loading" : ""}`}
+          onClick={onLocate}
+          disabled={locating}
+        >
+          {locating ? <span className="spinner" aria-hidden="true" /> : <Target size={16} />}
+          {locating ? "Đang định vị..." : "Vị trí của tôi"}
+        </button>
+      </div>
     </form>
   );
 }
 
 export function ResultCard({
   result,
-  showGrid,
-  gridNotice,
   gridDebug,
-  directionsLoading,
-  onShowGrid,
+  saved,
   onCopyCode,
   onCopyNormalizedCode,
   onShare,
@@ -1059,14 +1017,11 @@ export function ResultCard({
   onOpenGoogleMaps,
   onCopyCoordinates,
   onCopyLink,
-  onDirectionsFromMyLocation,
+  showDebug,
 }: {
   result: CodeResult;
-  showGrid: boolean;
-  gridNotice: string | null;
   gridDebug: GridDebug;
-  directionsLoading: boolean;
-  onShowGrid: (value: boolean) => void;
+  saved: boolean;
   onCopyCode: () => void;
   onCopyNormalizedCode: () => void;
   onShare: () => void;
@@ -1076,7 +1031,7 @@ export function ResultCard({
   onOpenGoogleMaps: () => void;
   onCopyCoordinates: () => void;
   onCopyLink: () => void;
-  onDirectionsFromMyLocation: () => void;
+  showDebug: boolean;
 }) {
   return (
     <div className="result">
@@ -1097,91 +1052,78 @@ export function ResultCard({
           <Navigation size={16} />
           Navigate
         </button>
-        <button type="button" onClick={onSave} className="primary-action">
-          <Target size={16} />
+        <button type="button" onClick={onSave} className={`primary-action ${saved ? "saved" : ""}`} aria-pressed={saved}>
+          <Bookmark size={16} />
           Save
         </button>
       </div>
-      <div className="actions" aria-label="Location code actions">
-        <button type="button" onClick={onCopyCode}>
-          <Clipboard size={16} />
-          Copy
-        </button>
-        <button type="button" onClick={onCopyLink}>
-          <Link size={16} />
-          Copy link
-        </button>
-        <button type="button" onClick={onOpenOpenStreetMap}>
-          <Navigation size={16} />
-          OpenStreetMap
-        </button>
-        <button type="button" onClick={onOpenGoogleMaps}>
-          <ExternalLink size={16} />
-          Google Maps
-        </button>
-        <button type="button" onClick={onCopyCoordinates}>
-          <Clipboard size={16} />
-          Copy coordinates
-        </button>
-        {supportsGeolocation() && (
-          <button type="button" onClick={onDirectionsFromMyLocation} disabled={directionsLoading}>
-            <LocateFixed size={16} />
-            {directionsLoading ? "Locating..." : "Directions from my location"}
+      <details className="secondary-actions">
+        <summary>More options</summary>
+        <div className="actions" aria-label="Secondary location actions">
+          <button type="button" onClick={onCopyCode}>
+            <Clipboard size={16} />
+            Copy code
           </button>
-        )}
-      </div>
-      <div className="grid-controls">
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={showGrid}
-            onChange={(event) => onShowGrid(event.target.checked)}
-          />
-          <span>Show grid</span>
-        </label>
-        <small>Each square is approximately 3m x 3m</small>
-        {showGrid && gridNotice && <small className="grid-notice">{gridNotice}</small>}
-      </div>
-      <details className="developer-info">
-        <summary>
-          <Code2 size={15} />
-          Developer info
-        </summary>
-        <dl>
-          <dt>Normalized code</dt>
-          <dd>
-            <button type="button" className="inline-copy" onClick={onCopyNormalizedCode}>{result.code}</button>
-          </dd>
-          {result.clicked && (
-            <>
-              <dt>Clicked lat/lon</dt>
-              <dd>{result.clicked.lat.toFixed(7)}, {result.clicked.lon.toFixed(7)}</dd>
-            </>
-          )}
-          <dt>Center lat/lon</dt>
-          <dd>{result.center.lat.toFixed(7)}, {result.center.lon.toFixed(7)}</dd>
-          <dt>Admin unit</dt>
-          <dd>{result.admin_unit.name} ({result.admin_unit.slug})</dd>
-          <dt>Grid version</dt>
-          <dd>{result.grid_version}</dd>
-          <dt>Cell size</dt>
-          <dd>{result.cell_size_m}m</dd>
-          <dt>X/Y index</dt>
-          <dd>{result.x_index ?? "Not exposed"} / {result.y_index ?? "Not exposed"}</dd>
-          <dt>Local index</dt>
-          <dd>{result.local_index ?? "Not exposed"}</dd>
-          <dt>Word ids</dt>
-          <dd>{result.word_ids?.join(", ") ?? "Not exposed"}</dd>
-          <dt>Grid visible</dt>
-          <dd>{String(gridDebug.visible)}</dd>
-          <dt>Grid zoom</dt>
-          <dd>{gridDebug.zoom.toFixed(2)}</dd>
-          <dt>Grid lines</dt>
-          <dd>{gridDebug.verticalLineCount} vertical / {gridDebug.horizontalLineCount} horizontal / {gridDebug.lineCount} total</dd>
-          <dt>Grid hidden reason</dt>
-          <dd>{gridDebug.hiddenCode ?? gridDebug.hiddenReason ?? "none"}</dd>
-        </dl>
+          <button type="button" onClick={onCopyLink}>
+            <Link size={16} />
+            Copy link
+          </button>
+          <button type="button" onClick={onCopyCoordinates}>
+            <Clipboard size={16} />
+            Copy coordinates
+          </button>
+          <button type="button" onClick={onOpenOpenStreetMap}>
+            <Navigation size={16} />
+            OpenStreetMap
+          </button>
+          <button type="button" onClick={onOpenGoogleMaps}>
+            <ExternalLink size={16} />
+            Google Maps
+          </button>
+        </div>
       </details>
+      {showDebug && (
+        <details className="developer-info">
+          <summary>
+            <Code2 size={15} />
+            Developer info
+          </summary>
+          <dl>
+            <dt>Normalized code</dt>
+            <dd>
+              <button type="button" className="inline-copy" onClick={onCopyNormalizedCode}>{result.code}</button>
+            </dd>
+            {result.clicked && (
+              <>
+                <dt>Clicked lat/lon</dt>
+                <dd>{result.clicked.lat.toFixed(7)}, {result.clicked.lon.toFixed(7)}</dd>
+              </>
+            )}
+            <dt>Center lat/lon</dt>
+            <dd>{result.center.lat.toFixed(7)}, {result.center.lon.toFixed(7)}</dd>
+            <dt>Admin unit</dt>
+            <dd>{result.admin_unit.name} ({result.admin_unit.slug})</dd>
+            <dt>Grid version</dt>
+            <dd>{result.grid_version}</dd>
+            <dt>Cell size</dt>
+            <dd>{result.cell_size_m}m</dd>
+            <dt>X/Y index</dt>
+            <dd>{result.x_index ?? "Not exposed"} / {result.y_index ?? "Not exposed"}</dd>
+            <dt>Local index</dt>
+            <dd>{result.local_index ?? "Not exposed"}</dd>
+            <dt>Word ids</dt>
+            <dd>{result.word_ids?.join(", ") ?? "Not exposed"}</dd>
+            <dt>Grid visible</dt>
+            <dd>{String(gridDebug.visible)}</dd>
+            <dt>Grid zoom</dt>
+            <dd>{gridDebug.zoom.toFixed(2)}</dd>
+            <dt>Grid lines</dt>
+            <dd>{gridDebug.verticalLineCount} vertical / {gridDebug.horizontalLineCount} horizontal / {gridDebug.lineCount} total</dd>
+            <dt>Grid hidden reason</dt>
+            <dd>{gridDebug.hiddenCode ?? gridDebug.hiddenReason ?? "none"}</dd>
+          </dl>
+        </details>
+      )}
     </div>
   );
 }
@@ -1407,6 +1349,20 @@ function shareUrl(code: string): string {
   return new URL(sharePath(code), window.location.origin).toString();
 }
 
+function readSavedCodes(): string[] {
+  try {
+    const raw = window.localStorage.getItem(SAVED_CODES_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((code): code is string => typeof code === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedCodes(codes: string[]) {
+  window.localStorage.setItem(SAVED_CODES_KEY, JSON.stringify(codes));
+}
+
 function groupSearchResults(results: SearchResult[]): SearchGroup[] {
   const labels: Record<SearchGroup["type"], string> = {
     codes: "Codes",
@@ -1502,10 +1458,21 @@ function supportsGeolocation(): boolean {
 }
 
 function messageFromGeolocationError(error: GeolocationPositionError): string {
-  if (error.code === error.PERMISSION_DENIED) return "Location permission denied";
-  if (error.code === error.POSITION_UNAVAILABLE) return "Location unavailable";
-  if (error.code === error.TIMEOUT) return "Location request timed out";
-  return "Could not get your location";
+  if (error.code === error.PERMISSION_DENIED) return "Bạn cần cho phép truy cập vị trí để dùng tính năng này";
+  if (error.code === error.POSITION_UNAVAILABLE) return "Không thể lấy vị trí hiện tại";
+  if (error.code === error.TIMEOUT) return "Lấy vị trí quá lâu, vui lòng thử lại";
+  return "Không thể lấy vị trí hiện tại";
+}
+
+function isGeolocationError(error: unknown): error is GeolocationPositionError {
+  return typeof error === "object" && error !== null && "code" in error;
+}
+
+function isOutsideSupportedArea(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.code === "OUT_OF_SUPPORTED_AREA" || error.code === "CELL_NOT_ASSIGNED" || error.code === "CODE_NOT_ASSIGNED")
+  );
 }
 
 function shortCode(code: string): string {

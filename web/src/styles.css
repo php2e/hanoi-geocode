@@ -13,6 +13,7 @@
   --danger: #9a3412;
   --radius: 8px;
   --shadow: 0 12px 32px rgba(20, 35, 31, 0.18);
+  --topbar-height: 64px;
 }
 
 html,
@@ -60,12 +61,42 @@ body {
   z-index: 1;
 }
 
-.search {
+.app-topbar {
   position: fixed;
-  top: 16px;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--topbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(12px);
+  z-index: 4;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.left-panel {
+  position: fixed;
+  top: calc(var(--topbar-height) + 16px);
   left: 16px;
-  right: 16px;
-  max-width: 780px;
+  width: min(520px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  z-index: 3;
+}
+
+.search {
+  width: 100%;
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
@@ -76,24 +107,19 @@ body {
   border-radius: 8px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(12px);
-  z-index: 3;
+  z-index: 5;
 }
 
 .settings-button {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(28, 43, 38, 0.14);
   border-radius: 999px;
   color: #102b26;
   background: rgba(255, 255, 255, 0.96);
-  box-shadow: var(--shadow);
   cursor: pointer;
-  z-index: 4;
 }
 
 .settings-button:hover {
@@ -222,18 +248,16 @@ body {
 .search-box {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 6px;
-  height: 48px;
+  gap: 10px;
   color: var(--navy);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 900;
   white-space: nowrap;
 }
@@ -279,51 +303,61 @@ body {
   background: transparent;
 }
 
-.search-box > button,
-.search > .basemap-select {
+.search-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.search-button,
+.locate-button {
   height: 48px;
   padding: 0 16px;
   border: 0;
   border-radius: var(--radius);
-  color: white;
-  background: var(--accent);
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.search .basemap-select {
-  min-width: 166px;
-  padding: 0 12px;
-  align-self: start;
+.search-button {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.locate-button {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  padding: 0 14px;
+  border: 1px solid rgba(28, 43, 38, 0.16);
   color: var(--navy);
-  background: #f7f7f8;
-  border: 1px solid rgba(28, 43, 38, 0.12);
+  background: #ffffff;
 }
 
-.basemap-select svg {
-  flex: 0 0 auto;
+.locate-button.loading {
+  cursor: wait;
 }
 
-.basemap-select select {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  color: var(--navy);
-  background: transparent;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.search-box > button:disabled,
-.search > .basemap-select:disabled {
+.search-button:disabled,
+.locate-button:disabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(28, 43, 38, 0.22);
+  border-top-color: var(--accent);
+  animation: spinner 0.8s linear infinite;
+}
+
+@keyframes spinner {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .search-menu {
@@ -338,7 +372,7 @@ body {
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 16px 40px rgba(20, 35, 31, 0.2);
-  z-index: 4;
+  z-index: 6;
 }
 
 .search-state {
@@ -429,12 +463,9 @@ body {
 }
 
 .panel {
-  position: fixed;
-  right: 16px;
-  top: 96px;
-  bottom: 24px;
-  width: min(420px, calc(100vw - 32px));
-  max-height: calc(100vh - 120px);
+  position: relative;
+  width: 100%;
+  max-height: min(520px, calc(100vh - var(--topbar-height) - 180px));
   overflow: auto;
   padding: 16px;
   background: var(--surface);
@@ -476,52 +507,9 @@ body {
   font-weight: 800;
 }
 
-.visual-debug-panel {
-  position: fixed;
-  left: 16px;
-  top: 112px;
-  width: min(360px, calc(100vw - 32px));
-  max-height: calc(100vh - 180px);
-  overflow: auto;
-  padding: 12px;
-  border: 2px solid #ff00ff;
-  border-radius: 8px;
-  color: #111827;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 12px 32px rgba(20, 35, 31, 0.18);
-  z-index: 3;
-  font-size: 12px;
-}
-
-.visual-debug-panel strong {
-  display: block;
-  margin-bottom: 8px;
-  color: #111827;
-  font-size: 13px;
-}
-
-.visual-debug-panel dl {
-  display: grid;
-  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
-  gap: 5px 10px;
-  margin: 0;
-}
-
-.visual-debug-panel dt {
-  color: #52636e;
-  font-weight: 800;
-}
-
-.visual-debug-panel dd {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-}
-
 .result {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .result-hero {
@@ -733,6 +721,54 @@ small {
   border-color: var(--accent);
 }
 
+.primary-actions button.saved {
+  border-color: rgba(215, 25, 32, 0.38);
+  color: var(--accent);
+  background: #fff1f2;
+}
+
+.secondary-actions {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.secondary-actions summary {
+  width: fit-content;
+  color: #52656f;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.secondary-actions .actions {
+  margin-top: 10px;
+}
+
+.saved-list {
+  display: grid;
+  gap: 6px;
+}
+
+.saved-list button {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid rgba(23, 32, 42, 0.12);
+  border-radius: 8px;
+  color: #17202a;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 750;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.saved-list button:hover {
+  border-color: rgba(215, 25, 32, 0.32);
+  color: var(--accent);
+}
+
 .grid-controls {
   display: grid;
   gap: 9px;
@@ -781,18 +817,27 @@ small {
 }
 
 @media (max-width: 640px) {
-  .search {
-    top: 10px;
+  :root {
+    --topbar-height: 56px;
+  }
+
+  .app-topbar {
+    padding: 0 12px;
+  }
+
+  .left-panel {
+    top: calc(var(--topbar-height) + 10px);
     left: 10px;
     right: 10px;
-    max-width: none;
+    width: auto;
+  }
+
+  .search {
     grid-template-columns: minmax(0, 1fr);
     padding: 10px;
   }
 
   .settings-button {
-    top: 10px;
-    right: 10px;
     width: 40px;
     height: 40px;
   }
@@ -807,11 +852,13 @@ small {
     gap: 8px;
   }
 
-  .brand {
-    display: none;
+  .search-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .search-box > button {
+  .search-actions button {
     width: 100%;
   }
 
@@ -820,9 +867,9 @@ small {
   }
 
   .panel {
+    position: fixed;
     left: 10px;
     right: 10px;
-    top: auto;
     bottom: 10px;
     width: auto;
     max-height: 48vh;
@@ -846,6 +893,10 @@ small {
 @media (max-width: 460px) {
   .search {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .search-actions {
+    grid-template-columns: 1fr;
   }
 
   .primary-actions {

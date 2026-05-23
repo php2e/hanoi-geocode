@@ -2,7 +2,7 @@
   "version": 8,
   "name": "Hanoi Detailed",
   "metadata": {
-    "description": "Detailed OpenStreetMap-like style for the local Hanoi tilemaker MBTiles."
+    "description": "Readable Hanoi style for local tilemaker MBTiles, tuned for sparse labels and geocode overlays."
   },
   "sources": {
     "v3": {
@@ -21,7 +21,7 @@
       "id": "background",
       "type": "background",
       "paint": {
-        "background-color": "#f2efe9"
+        "background-color": "#f5f3ee"
       }
     },
     {
@@ -34,13 +34,13 @@
         "fill-color": [
           "match",
           ["get", "class"],
-          "wood", "#c8dfb7",
-          "grass", "#d5e8c2",
-          "scrub", "#d7e5bf",
-          "sand", "#eee1b8",
-          "#e7ead8"
+          "wood", "#d2e6c7",
+          "grass", "#dceccd",
+          "scrub", "#dce8ca",
+          "sand", "#f0e6c7",
+          "#ececdd"
         ],
-        "fill-opacity": 0.68
+        "fill-opacity": 0.58
       }
     },
     {
@@ -56,16 +56,16 @@
           "residential", "#ece7dd",
           "suburb", "#ece7dd",
           "neighbourhood", "#ece7dd",
-          "industrial", "#eadde4",
-          "commercial", "#efe0d3",
-          "retail", "#f1ded5",
-          "school", "#efe9c9",
-          "hospital", "#f2dada",
-          "cemetery", "#d8e4cf",
+          "industrial", "#ebe3e2",
+          "commercial", "#efe5dc",
+          "retail", "#f0e5de",
+          "school", "#f0eccf",
+          "hospital", "#f1dddd",
+          "cemetery", "#dce7d3",
           "agriculture", "#eee8d5",
-          "#ebe6dc"
+          "#eee9df"
         ],
-        "fill-opacity": 0.72
+        "fill-opacity": 0.58
       }
     },
     {
@@ -75,8 +75,8 @@
       "source-layer": "park",
       "minzoom": 10,
       "paint": {
-        "fill-color": "#cfe8bf",
-        "fill-opacity": 0.86
+        "fill-color": "#d8edcc",
+        "fill-opacity": 0.76
       }
     },
     {
@@ -86,7 +86,7 @@
       "source-layer": "water",
       "filter": ["==", "$type", "Polygon"],
       "paint": {
-        "fill-color": "#a9d6f2"
+        "fill-color": "#b9ddf2"
       }
     },
     {
@@ -100,8 +100,8 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#89c3e8",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.7, 12, 1.4, 16, 5, 19, 11],
+        "line-color": "#99cceb",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.6, 12, 1.2, 16, 4, 19, 9],
         "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.45, 1]
       }
     },
@@ -124,9 +124,9 @@
       "source-layer": "building",
       "minzoom": 13,
       "paint": {
-        "fill-color": "#d7d0c4",
-        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.55, 15, 0.9],
-        "fill-outline-color": "#c1b9ad"
+        "fill-color": "#ded9cf",
+        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.38, 15, 0.7, 18, 0.82],
+        "fill-outline-color": "#cdc7bc"
       }
     },
     {
@@ -135,9 +135,9 @@
       "source": "v3",
       "source-layer": "boundary",
       "paint": {
-        "line-color": "#9c8fb0",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.45, 12, 0.8, 16, 1.4],
-        "line-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0.28, 12, 0.45],
+        "line-color": "#b0a5bb",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.35, 12, 0.7, 16, 1.1],
+        "line-opacity": ["interpolate", ["linear"], ["zoom"], 7, 0.2, 12, 0.34],
         "line-dasharray": [2, 2]
       }
     },
@@ -153,9 +153,9 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#c9c4b9",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 1.2, 16, 3, 19, 7],
-        "line-opacity": 0.75
+        "line-color": "#d5d0c6",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 1, 16, 2.4, 19, 6],
+        "line-opacity": 0.58
       }
     },
     {
@@ -170,9 +170,9 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#d0cbc0",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 14, 3.2, 16, 7, 19, 18],
-        "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.45, 1]
+        "line-color": "#d7d2c8",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.1, 14, 2.5, 16, 5.5, 19, 15],
+        "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.35, 0.72]
       }
     },
     {
@@ -189,15 +189,15 @@
         "line-color": [
           "match",
           ["get", "class"],
-          "motorway", "#d99564",
-          "trunk", "#e4a765",
-          "primary", "#e8b86f",
-          "secondary", "#d9bd7b",
-          "tertiary", "#cfc5a2",
-          "#cfc5a2"
+          "motorway", "#e1a15f",
+          "trunk", "#e7ad66",
+          "primary", "#e9bc72",
+          "secondary", "#e2ca91",
+          "tertiary", "#ded5b2",
+          "#ded5b2"
         ],
-        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 1.1, 10, 2.2, 13, 5.5, 16, 11, 19, 26],
-        "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.55, 1]
+        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.9, 10, 1.8, 13, 4.5, 16, 9, 19, 22],
+        "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.45, 0.86]
       }
     },
     {
@@ -212,10 +212,10 @@
         "line-join": "round"
       },
       "paint": {
-        "line-color": "#f7f6f1",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.8, 16, 1.8, 19, 4.5],
+        "line-color": "#fbfaf6",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 0.6, 16, 1.5, 19, 4],
         "line-dasharray": [1.2, 1],
-        "line-opacity": 0.95
+        "line-opacity": 0.72
       }
     },
     {
@@ -231,8 +231,8 @@
       },
       "paint": {
         "line-color": "#ffffff",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.9, 14, 2.2, 16, 5, 19, 14],
-        "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.62, 1]
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.7, 14, 1.8, 16, 4.2, 19, 12],
+        "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.52, 0.9]
       }
     },
     {
@@ -249,15 +249,15 @@
         "line-color": [
           "match",
           ["get", "class"],
-          "motorway", "#f7c79c",
-          "trunk", "#f8d49d",
-          "primary", "#f9dfa8",
-          "secondary", "#fff0bd",
-          "tertiary", "#fff7d1",
+          "motorway", "#f4c28f",
+          "trunk", "#f6d097",
+          "primary", "#f8dda5",
+          "secondary", "#fff1c5",
+          "tertiary", "#fff7da",
           "#ffffff"
         ],
-        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.65, 10, 1.5, 13, 3.8, 16, 8, 19, 21],
-        "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.7, 1]
+        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.5, 10, 1.2, 13, 3.1, 16, 6.8, 19, 18],
+        "line-opacity": ["case", ["==", ["get", "brunnel"], "tunnel"], 0.62, 0.96]
       }
     },
     {
@@ -296,21 +296,21 @@
       "source": "v3",
       "source-layer": "transportation_name",
       "filter": ["all", ["==", "$type", "LineString"], ["any", ["has", "name:latin"], ["has", "ref"]]],
-      "minzoom": 12,
+      "minzoom": 13,
       "layout": {
         "symbol-placement": "line",
-        "symbol-spacing": ["interpolate", ["linear"], ["zoom"], 12, 280, 16, 450],
+        "symbol-spacing": ["interpolate", ["linear"], ["zoom"], 13, 420, 16, 620, 19, 860],
         "text-field": ["coalesce", ["get", "name:latin"], ["get", "ref"]],
         "text-font": ["Noto Sans Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10, 15, 12, 18, 14],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 13, 9, 16, 10.5, 19, 12],
         "text-letter-spacing": 0,
         "text-rotation-alignment": "map",
         "text-pitch-alignment": "viewport"
       },
       "paint": {
-        "text-color": "#5d5145",
+        "text-color": "#746a5d",
         "text-halo-color": "#ffffff",
-        "text-halo-width": 2,
+        "text-halo-width": 1.8,
         "text-halo-blur": 0.5
       }
     },
@@ -358,16 +358,22 @@
       "type": "symbol",
       "source": "v3",
       "source-layer": "poi",
-      "filter": ["all", ["==", "$type", "Point"], ["has", "name:latin"]],
-      "minzoom": 14,
+      "filter": [
+        "all",
+        ["==", "$type", "Point"],
+        ["has", "name:latin"],
+        ["any", ["!has", "rank"], ["<=", "rank", 4]]
+      ],
+      "minzoom": 16,
       "layout": {
         "text-field": ["get", "name:latin"],
         "text-font": ["Noto Sans Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 14, 10.5, 17, 12],
-        "text-max-width": 9,
+        "text-size": ["interpolate", ["linear"], ["zoom"], 16, 10, 18, 11.5],
+        "text-max-width": 8,
         "text-offset": [0, 0.5],
         "text-anchor": "top",
-        "text-padding": 2
+        "text-padding": 6,
+        "symbol-sort-key": ["coalesce", ["get", "rank"], 99]
       },
       "paint": {
         "text-color": [
@@ -380,7 +386,7 @@
           "#5f5a50"
         ],
         "text-halo-color": "#ffffff",
-        "text-halo-width": 2,
+        "text-halo-width": 1.8,
         "text-halo-blur": 0.3
       }
     },
@@ -390,19 +396,20 @@
       "source": "v3",
       "source-layer": "poi_detail",
       "filter": ["all", ["==", "$type", "Point"], ["has", "name:latin"]],
-      "minzoom": 16,
+      "minzoom": 17,
       "layout": {
         "text-field": ["get", "name:latin"],
         "text-font": ["Noto Sans Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 16, 10, 19, 12],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 17, 9.5, 19, 11],
         "text-max-width": 8,
         "text-offset": [0, 0.5],
-        "text-anchor": "top"
+        "text-anchor": "top",
+        "text-padding": 8
       },
       "paint": {
-        "text-color": "#6a6256",
+        "text-color": "#746d62",
         "text-halo-color": "#ffffff",
-        "text-halo-width": 1.8
+        "text-halo-width": 1.6
       }
     },
     {
@@ -457,13 +464,14 @@
       "layout": {
         "text-field": ["get", "name:latin"],
         "text-font": ["Noto Sans Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 13, 12, 16, 14],
-        "text-max-width": 9
+        "text-size": ["interpolate", ["linear"], ["zoom"], 9, 9, 13, 11, 16, 12.5],
+        "text-max-width": 9,
+        "text-padding": 10
       },
       "paint": {
-        "text-color": "#4a4540",
+        "text-color": "#54504a",
         "text-halo-color": "#ffffff",
-        "text-halo-width": 2
+        "text-halo-width": 1.8
       }
     },
     {
@@ -475,11 +483,12 @@
       "layout": {
         "text-field": ["get", "name:latin"],
         "text-font": ["Noto Sans Regular"],
-        "text-size": ["interpolate", ["linear"], ["zoom"], 5, 14, 10, 18, 14, 22],
-        "text-max-width": 10
+        "text-size": ["interpolate", ["linear"], ["zoom"], 5, 14, 10, 17, 14, 20],
+        "text-max-width": 10,
+        "text-padding": 12
       },
       "paint": {
-        "text-color": "#302d2a",
+        "text-color": "#35322f",
         "text-halo-color": "#ffffff",
         "text-halo-width": 2.2
       }
