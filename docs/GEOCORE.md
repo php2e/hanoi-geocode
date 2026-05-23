@@ -43,3 +43,5 @@ permuted_index = (local_index * multiplier + offset_value) mod pair_capacity
 ```
 
 The multiplier is chosen so it is coprime with pair capacity. Multiplier and offset are derived from SHA-256 over stable inputs and stored in `admin_code_params`; Python's randomized built-in `hash()` is never used.
+
+Changing the active word source changes word IDs, pair capacity, and generated codes. The word import command invalidates existing grid/code metadata on replace; rebuild the grid after importing a new source so encode and decode use the same word list and parameters.

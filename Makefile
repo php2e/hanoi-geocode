@@ -1,4 +1,9 @@
 DATABASE_URL ?= postgresql://hanoi:hanoi@localhost:15432/hanoi_geocode
+WORDS_PATH ?= ../data/model_v10/all_ranked_words.csv
+WORDS_COLUMN ?= word
+WORDS_LIMIT ?= 3071
+WORDS_DUPLICATE_POLICY ?= keep-first
+WORDS_MIN_COUNT ?= 2988
 
 .PHONY: db-up db-up-host db-down db-check migrate import-admin import-words build-grid backend web test validate
 
@@ -22,7 +27,7 @@ import-admin:
 	cd backend && DATABASE_URL=$(DATABASE_URL) python -m scripts.import_admin_units --replace
 
 import-words:
-	cd backend && DATABASE_URL=$(DATABASE_URL) python -m scripts.import_words --replace
+	cd backend && DATABASE_URL=$(DATABASE_URL) python -m scripts.import_words --replace --path $(WORDS_PATH) --word-column $(WORDS_COLUMN) --limit $(WORDS_LIMIT) --duplicate-policy $(WORDS_DUPLICATE_POLICY) --min-count $(WORDS_MIN_COUNT)
 
 build-grid:
 	cd backend && DATABASE_URL=$(DATABASE_URL) python -m scripts.build_grid_intervals --cell-size 3 --rebuild

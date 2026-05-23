@@ -50,6 +50,7 @@ backend/word_validation_report.txt
 # Local geospatial build outputs
 data/generated/
 data/reports/
+data/
 
 # Docker/local volumes
 .docker/
