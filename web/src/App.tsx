@@ -341,7 +341,17 @@ export default function App() {
     }
 
     const bounds = map.getBounds();
-    const url = `${API_BASE}/v1/grid/viewport?west=${bounds.getWest()}&south=${bounds.getSouth()}&east=${bounds.getEast()}&north=${bounds.getNorth()}&zoom=${zoom}`;
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    const lonPad = (east - west) * 0.5;
+    const latPad = (north - south) * 0.5;
+    const paddedWest = clampLongitude(west - lonPad);
+    const paddedEast = clampLongitude(east + lonPad);
+    const paddedSouth = clampLatitude(south - latPad);
+    const paddedNorth = clampLatitude(north + latPad);
+    const url = `${API_BASE}/v1/grid/viewport?west=${paddedWest}&south=${paddedSouth}&east=${paddedEast}&north=${paddedNorth}&zoom=${zoom}`;
     let response: ViewportGridResponse;
     try {
       response = (await fetch(url).then((res) => res.json())) as ViewportGridResponse;
@@ -656,8 +666,8 @@ export default function App() {
       <div id="map" />
       <header className="app-topbar">
         <div className="brand">
-          <Target size={18} />
-          <span>Hanoi Codes</span>
+          <span className="brand-mark">///</span>
+          <span className="brand-text">Hanoi Codes</span>
         </div>
         <div className="topbar-actions">
           <button
@@ -741,7 +751,7 @@ export default function App() {
         {showGrid && gridNotice && <div className="status-chip">{gridNotice}</div>}
       </div>
       <div className="left-panel">
-        <div className="search">
+        <div className="search-card">
           <SearchBox
             query={query}
             onQueryChange={setQuery}
@@ -820,6 +830,7 @@ export function SearchBox({
   const [hasFocus, setHasFocus] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ignoreBlurRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setOpen(false);
@@ -835,12 +846,20 @@ export function SearchBox({
       setSearching(false);
       return;
     }
-    if (trimmed.length < 2) {
+    if (trimmed.length === 0) {
       setResults([]);
       setGroups([]);
       setSearching(false);
       setError(null);
       setOpen(false);
+      return;
+    }
+    if (trimmed.length < 2) {
+      setResults([]);
+      setGroups([]);
+      setSearching(false);
+      setError(null);
+      setOpen(true);
       return;
     }
 
@@ -915,11 +934,12 @@ export function SearchBox({
   }
 
   return (
-    <form className="search-box" onSubmit={handleSubmit}>
+    <form className="search-box" onSubmit={handleSubmit} aria-busy={busy}>
       <div className="search-input-wrap">
-        <div className="search-field">
+        <div className="search-input-shell">
           <Search size={18} />
           <input
+            ref={inputRef}
             value={query}
             onChange={(event) => {
               onQueryChange(event.target.value);
@@ -940,66 +960,82 @@ export function SearchBox({
             onKeyDown={handleKeyDown}
             placeholder="Search a place or /// code"
           />
+          {query.trim().length > 0 && (
+            <button
+              type="button"
+              className="clear-button"
+              aria-label="Clear search"
+              onClick={() => {
+                onQueryChange("");
+                setResults([]);
+                setGroups([]);
+                setSearching(false);
+                setError(null);
+                setOpen(false);
+                inputRef.current?.focus();
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
+          {open && hasFocus && query.trim().length > 0 && (
+            <div
+              className="search-menu"
+              onMouseDown={() => {
+                ignoreBlurRef.current = true;
+              }}
+              onMouseUp={() => {
+                window.setTimeout(() => {
+                  ignoreBlurRef.current = false;
+                }, 0);
+              }}
+            >
+              {query.trim().length < 2 && <div className="search-state">Keep typing to see results</div>}
+              {query.trim().length >= 2 && searching && <div className="search-state">Searching...</div>}
+              {query.trim().length >= 2 && error && <div className="search-state error-text">{error}</div>}
+              {query.trim().length >= 2 && !searching && !error && results.length === 0 && (
+                <div className="search-state">{looksLikeCodeInput(query) ? "Invalid code. No results found." : "No results found"}</div>
+              )}
+              {!searching && !error && groups.map((group) => (
+                <div className="search-group" key={group.type}>
+                  <div className="search-group-title">{group.title}</div>
+                  {group.results.map((result) => (
+                    <button
+                      type="button"
+                      className={`search-option ${results[activeIndex]?.id === result.id ? "active" : ""}`}
+                      key={result.id}
+                      onMouseEnter={() => {
+                        const index = results.findIndex((item) => item.id === result.id);
+                        if (index >= 0) setActiveIndex(index);
+                      }}
+                      onClick={() => choose(result)}
+                    >
+                      <span className="search-option-icon">{typeIcon(result.type)}</span>
+                      <span className="search-option-copy">
+                        <strong>{searchResultTitle(result)}</strong>
+                        <small>{searchResultSubtitle(result)}</small>
+                      </span>
+                      <em>{resultBadge(result)}</em>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div className="search-helper">Try Hồ Gươm or /// Thanh Xuân.vùng lành hai.trường chinh</div>
-        {open && hasFocus && query.trim().length >= 2 && (
-          <div
-            className="search-menu"
-            onMouseDown={() => {
-              ignoreBlurRef.current = true;
-            }}
-            onMouseUp={() => {
-              window.setTimeout(() => {
-                ignoreBlurRef.current = false;
-              }, 0);
-            }}
-          >
-            {searching && <div className="search-state">Searching...</div>}
-            {error && <div className="search-state error-text">{error}</div>}
-            {!searching && !error && results.length === 0 && (
-              <div className="search-state">{looksLikeCodeInput(query) ? "Invalid code. No results found." : "No results found"}</div>
-            )}
-            {!searching && !error && groups.map((group) => (
-              <div className="search-group" key={group.type}>
-                <div className="search-group-title">{group.title}</div>
-                {group.results.map((result) => (
-                  <button
-                    type="button"
-                    className={`search-option ${results[activeIndex]?.id === result.id ? "active" : ""}`}
-                    key={result.id}
-                    onMouseEnter={() => {
-                      const index = results.findIndex((item) => item.id === result.id);
-                      if (index >= 0) setActiveIndex(index);
-                    }}
-                    onClick={() => choose(result)}
-                  >
-                    <span className="search-option-icon">{typeIcon(result.type)}</span>
-                    <span className="search-option-copy">
-                      <strong>{searchResultTitle(result)}</strong>
-                      <small>{searchResultSubtitle(result)}</small>
-                    </span>
-                    <em>{resultBadge(result)}</em>
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
+        {hasFocus && query.trim().length === 0 && (
+          <div className="search-helper">Try Hồ Gươm or /// Thanh Xuân.vùng lành hai.trường chinh</div>
         )}
       </div>
-      <div className="search-actions">
-        <button type="submit" className="search-button" disabled={busy || searching}>
-          {searching ? "Searching..." : "Search"}
-        </button>
-        <button
-          type="button"
-          className={`locate-button ${locating ? "loading" : ""}`}
-          onClick={onLocate}
-          disabled={locating}
-        >
-          {locating ? <span className="spinner" aria-hidden="true" /> : <Target size={16} />}
-          {locating ? "Đang định vị..." : "Vị trí của tôi"}
-        </button>
-      </div>
+      <button
+        type="button"
+        className={`my-location-button ${locating ? "loading" : ""}`}
+        onClick={onLocate}
+        disabled={locating}
+      >
+        {locating ? <span className="spinner" aria-hidden="true" /> : <span className="location-icon">◎</span>}
+        {locating ? "Đang định vị..." : "Vị trí của tôi"}
+      </button>
     </form>
   );
 }
@@ -1530,4 +1566,12 @@ async function copyText(text: string) {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
+}
+
+function clampLatitude(value: number): number {
+  return Math.max(-85, Math.min(85, value));
+}
+
+function clampLongitude(value: number): number {
+  return Math.max(-180, Math.min(180, value));
 }

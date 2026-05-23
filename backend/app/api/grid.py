@@ -7,7 +7,7 @@ from app.services.geometry import lonlat_to_xy, xy_to_lonlat
 
 router = APIRouter(prefix="/v1", tags=["grid"])
 
-MAX_GRID_LINES = 600
+MAX_GRID_LINES = 1200
 MIN_GRID_ZOOM = 18
 
 
