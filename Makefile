@@ -1,5 +1,5 @@
 DATABASE_URL ?= postgresql://hanoi:hanoi@localhost:15432/hanoi_geocode
-WORDS_PATH ?= ../data/model_v10/all_ranked_words.csv
+WORDS_PATH ?= ../data/final/all_ranked_words_36.csv
 WORDS_COLUMN ?= word
 WORDS_LIMIT ?= 3071
 WORDS_DUPLICATE_POLICY ?= keep-first

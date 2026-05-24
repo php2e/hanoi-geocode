@@ -14,6 +14,17 @@
   --radius: 8px;
   --shadow: 0 12px 32px rgba(20, 35, 31, 0.18);
   --topbar-height: 60px;
+  --panel-width: 520px;
+  --panel-margin: 16px;
+  --panel-gap: 14px;
+  --card-radius: 20px;
+  --panel-radius: 16px;
+  --card-padding: 14px;
+  --card-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  --bottom-sheet-height: 40vh;
+  --suggestions-max-height: 460px;
+  --map-controls-bottom: 18px;
+  --status-stack-bottom: 24px;
 }
 
 html,
@@ -86,11 +97,11 @@ body {
 
 .left-panel {
   position: fixed;
-  top: calc(var(--topbar-height) + 16px);
-  left: 16px;
-  width: min(520px, calc(100vw - 32px));
+  top: calc(var(--topbar-height) + var(--panel-margin));
+  left: var(--panel-margin);
+  width: min(var(--panel-width), calc(100vw - (var(--panel-margin) * 2)));
   display: grid;
-  gap: 14px;
+  gap: var(--panel-gap);
   z-index: 3;
 }
 
@@ -101,10 +112,10 @@ body {
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 12px;
-  padding: 14px;
+  padding: var(--card-padding);
   background: #ffffff;
-  border-radius: 20px;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
   z-index: 5;
 }
 
@@ -397,7 +408,7 @@ body {
   top: calc(100% + 10px);
   left: 0;
   right: 0;
-  max-height: min(460px, calc(100vh - 110px));
+  max-height: min(var(--suggestions-max-height), calc(100vh - 140px));
   overflow: auto;
   padding: 8px;
   border: 1px solid rgba(15, 23, 42, 0.12);
@@ -502,8 +513,8 @@ body {
   padding: 16px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--card-shadow);
   backdrop-filter: blur(12px);
   z-index: 2;
 }
@@ -519,8 +530,8 @@ body {
 
 .status-stack {
   position: fixed;
-  left: 16px;
-  bottom: 24px;
+  left: var(--panel-margin);
+  bottom: var(--status-stack-bottom);
   display: grid;
   gap: 8px;
   z-index: 2;
@@ -558,9 +569,10 @@ body {
 }
 
 .code-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 8px;
 }
 
 .code-line span {
@@ -573,6 +585,23 @@ body {
 .code-line strong {
   font-size: 24px;
   line-height: 1.15;
+}
+
+.code-copy {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 10px;
+  color: #334155;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.code-copy:hover {
+  border-color: rgba(215, 25, 32, 0.4);
+  color: var(--accent);
 }
 
 .result-hero p {
@@ -841,32 +870,58 @@ small {
 }
 
 .maplibregl-ctrl-bottom-left {
-  bottom: 18px;
+  bottom: var(--map-controls-bottom);
+  left: var(--panel-margin);
+}
+
+.maplibregl-ctrl-bottom-right {
+  bottom: var(--map-controls-bottom);
+  right: var(--panel-margin);
 }
 
 .maplibregl-ctrl-attrib {
   font-size: 11px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 1023px) {
   :root {
-    --topbar-height: 56px;
+    --panel-width: 420px;
+    --panel-margin: 14px;
+    --panel-gap: 12px;
+    --card-radius: 18px;
+    --panel-radius: 14px;
+    --card-padding: 12px;
+    --card-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+    --suggestions-max-height: 420px;
+  }
+
+  .search-input-shell,
+  .search-input-shell input {
+    height: 52px;
+    font-size: 16px;
+  }
+
+  .settings-panel {
+    width: min(420px, 90vw);
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    --topbar-height: 52px;
+    --panel-width: 100%;
+    --panel-margin: 12px;
+    --panel-gap: 12px;
+    --card-radius: 18px;
+    --panel-radius: 16px;
+    --card-padding: 12px;
+    --suggestions-max-height: 45vh;
+    --map-controls-bottom: calc(var(--bottom-sheet-height) + 24px);
+    --status-stack-bottom: calc(var(--bottom-sheet-height) + 20px);
   }
 
   .app-topbar {
     padding: 0 12px;
-  }
-
-  .left-panel {
-    top: calc(var(--topbar-height) + 10px);
-    left: 10px;
-    right: 10px;
-    width: auto;
-  }
-
-  .search-card {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 10px;
   }
 
   .settings-button {
@@ -875,11 +930,18 @@ small {
   }
 
   .settings-panel {
-    width: min(320px, 92vw);
+    width: min(85vw, 420px);
   }
 
-  .search-box {
-    gap: 8px;
+  .search-input-shell,
+  .search-input-shell input {
+    height: 48px;
+    font-size: 16px;
+  }
+
+  .clear-button {
+    width: 26px;
+    height: 26px;
   }
 
   .my-location-button {
@@ -889,17 +951,65 @@ small {
 
   .panel {
     position: fixed;
-    left: 10px;
-    right: 10px;
-    bottom: 10px;
+    left: var(--panel-margin);
+    right: var(--panel-margin);
+    bottom: var(--panel-margin);
     width: auto;
-    max-height: 48vh;
-    border-radius: 12px 12px 8px 8px;
+    max-height: var(--bottom-sheet-height);
+    padding: 12px;
+    border-radius: 16px;
   }
 
-  .status-stack {
-    left: 10px;
-    bottom: calc(48vh + 22px);
+  .result {
+    gap: 10px;
+  }
+
+  .result-hero {
+    gap: 6px;
+  }
+
+  .eyebrow {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+  }
+
+  .code-line {
+    column-gap: 6px;
+  }
+
+  .code-line span {
+    margin-top: 1px;
+    font-size: 16px;
+  }
+
+  .code-line strong {
+    font-size: 20px;
+    line-height: 1.2;
+  }
+
+  .code-copy {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+  }
+
+  .result-hero p {
+    font-size: 12px;
+  }
+
+  .primary-actions {
+    gap: 6px;
+  }
+
+  .primary-actions button {
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  .maplibregl-ctrl-attrib {
+    font-size: 10px;
   }
 
   .primary-actions {
@@ -911,12 +1021,25 @@ small {
   }
 }
 
-@media (max-width: 460px) {
-  .search-card {
-    grid-template-columns: minmax(0, 1fr);
+@media (max-width: 480px) {
+  :root {
+    --panel-margin: 10px;
+    --bottom-sheet-height: 42vh;
+  }
+
+  .brand-text {
+    font-size: 14px;
+  }
+
+  .search-helper {
+    font-size: 11px;
+  }
+
+  .code-line strong {
+    font-size: 20px;
   }
 
   .primary-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

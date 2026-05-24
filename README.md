@@ -12,7 +12,7 @@ The app displays Hanoi and ward/commune boundaries, lets a user click a point, a
 
 - `backend/`: FastAPI app, PostGIS schema, geocoding services, import/build scripts, tests.
 - `web/`: Vite React + TypeScript + MapLibre GL JS demo.
-- `data/`: canonical local inputs: `hanoi_bound_2026.geojson`, `hanoi_wards_2026.geojson`, and curated word sources such as `model_v10/top_3000_words.csv`.
+- `data/`: canonical local inputs: `hanoi_bound_2026.geojson`, `hanoi_wards_2026.geojson`, and curated word sources such as `final/all_ranked_words_36.csv`.
 - `tiles/`: optional local basemap tile inputs and generated vector MBTiles.
 - `docs/`: architecture, geocore, data assumptions, limitations.
 
@@ -36,15 +36,15 @@ make build-grid
 make backend
 ```
 
-`make import-words` defaults to `data/model_v10/all_ranked_words.csv`, reads the `word` column, and imports the top `3071` ranked rows. You can point it at another curated source or top-N size without code changes:
+`make import-words` defaults to `data/final/all_ranked_words_36.csv`, reads the `word` column, and imports the top `3071` ranked rows. You can point it at another curated source or top-N size without code changes:
 
 ```bash
-make import-words WORDS_PATH=../data/model_v10/all_ranked_words.csv WORDS_COLUMN=word WORDS_LIMIT=5000
+make import-words WORDS_PATH=../data/final/all_ranked_words_36.csv WORDS_COLUMN=word WORDS_LIMIT=5000
 ```
 
 CSV and plain-text word sources are both supported. CSV import auto-detects common columns such as `word` and `normalized_word`; use `WORDS_COLUMN=...` when a file has a custom schema. Replacing the word list invalidates existing grid/code metadata, so run `make build-grid` after every source change.
 
-For the current 3m Hanoi grid, the active normalized word list must contain at least `2988` unique slugs. The checked-in `top_3000_words.csv` has 3000 rows, but only 2924 unique normalized slugs because some accented words collapse to the same code slug. In `all_ranked_words.csv`, the top 3071 rows are the first point that yields 2988 unique normalized slugs.
+For the current 3m Hanoi grid, the active normalized word list must contain at least `2988` unique slugs. In `all_ranked_words_36.csv`, the top 3071 rows are the first point that yields 2988 unique normalized slugs.
 
 In another terminal:
 

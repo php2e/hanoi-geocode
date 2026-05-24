@@ -528,7 +528,7 @@ export default function App() {
   async function copyCode() {
     if (!selectedLocation) return;
     await copyText(visualCode(selectedLocation));
-    setNotice("Copied code");
+    setNotice("Đã sao chép");
   }
 
   async function copyLink() {
@@ -725,24 +725,20 @@ export default function App() {
             <span className="settings-note">Default</span>
           </div>
         </div>
-      <div className="settings-section">
-        <span className="settings-label">Search settings</span>
-        <div className="settings-row muted">Coming soon</div>
-      </div>
-      <div className="settings-section">
-        <span className="settings-label">Saved locations</span>
-        {savedCodes.length === 0 ? (
-          <div className="settings-row muted">No saved locations</div>
-        ) : (
-          <div className="saved-list">
-            {savedCodes.slice(0, 6).map((code) => (
-              <button type="button" key={code} onClick={() => decodeCode(code, true, true, false)}>
-                /// {code}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+        <div className="settings-section">
+          <span className="settings-label">Saved locations</span>
+          {savedCodes.length === 0 ? (
+            <div className="settings-row muted">No saved locations</div>
+          ) : (
+            <div className="saved-list">
+              {savedCodes.slice(0, 6).map((code) => (
+                <button type="button" key={code} onClick={() => decodeCode(code, true, true, false)}>
+                  /// {code}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </aside>
       <div className="status-stack" aria-live="polite">
         {!mapReady && <div className="status-chip">Loading map</div>}
@@ -1076,6 +1072,9 @@ export function ResultCard({
         <div className="code-line">
           <span aria-hidden="true">///</span>
           <strong>{displayCode(result)}</strong>
+          <button type="button" className="code-copy" onClick={onCopyCode} aria-label="Copy code">
+            <Clipboard size={16} />
+          </button>
         </div>
         <p>{resultContext(result)}</p>
       </div>

@@ -111,7 +111,7 @@ def similarity_warnings(candidates: list[tuple[str, str]], limit: int = 500) -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--path", default="../data/vi_wiktionary_pos.txt")
+    parser.add_argument("--path", default="../data/final/all_ranked_words_36.csv")
     parser.add_argument("--word-column", help="CSV column to import. Defaults to word, normalized_word, or the first column.")
     parser.add_argument("--limit", type=int, default=0, help="Only read the top N rows/lines from the word source.")
     parser.add_argument(
